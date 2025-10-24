@@ -81,7 +81,7 @@ export default function SignUpPage() {
           type="email"
           placeholder="Email"
           autoComplete="email"
-          className="w-full border p-3 rounded mb-4"
+          className="w-full border p-3 rounded mb-4 placeholder -[#1f2937] text-gray-500"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
@@ -92,7 +92,7 @@ export default function SignUpPage() {
           type="password"
           placeholder="Password"
           autoComplete="new-password"
-          className="w-full border p-3 rounded mb-4"
+          className="w-full border p-3 rounded mb-4 placeholder -[#1f2937] text-gray-500"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
@@ -102,7 +102,7 @@ export default function SignUpPage() {
         <button
           type="submit"
           disabled={loading}
-          className={`w-full ${loading ? 'bg-green-400' : 'bg-green-600'} text-white py-2 rounded hover:bg-green-700`}
+          className={`w-full ${loading ? 'bg-blue-400' : 'bg-blue-600'} text-white py-2 rounded hover:bg-blue-700`}
           suppressHydrationWarning
         >
           {loading ? 'Creating...' : 'Create Account'}

@@ -24,12 +24,6 @@ export default function Hero() {
             Get Started
           </Link>
 
-          <Link
-            href="/learn-more"
-            className="inline-block rounded-md border border-gray-300 px-6 py-3 text-gray-700 font-medium hover:bg-gray-100 transition"
-          >
-            Learn More
-          </Link>
         </div>
       </div>
     </section>
