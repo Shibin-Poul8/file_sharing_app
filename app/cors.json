@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["http://localhost:3000", "https://file-sharing-app-b1650.web.app", "https://file-sharing-app-b1650.firebaseapp.com"],
+    "method": ["GET", "POST", "PUT", "HEAD", "DELETE"],
+    "maxAgeSeconds": 3600,
+    "responseHeader": ["Content-Type", "x-goog-meta-*"]
+  }
+]
