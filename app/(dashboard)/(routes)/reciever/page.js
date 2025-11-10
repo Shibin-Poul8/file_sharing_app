@@ -1,115 +1,73 @@
 "use client";
-import React, { useEffect, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth, db } from "../../../firebase/config";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  orderBy,
-  limit,
-} from "firebase/firestore";
+import { useEffect, useState } from "react";
+import { db } from "../../../firebase/config";
+import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
 
-export default function ReceiverPage() {
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState(null);
+export default function DownloadPage() {
   const [files, setFiles] = useState([]);
-  const [error, setError] = useState("");
-
-  // URL params: ?email=recipient@example.com or ?file=<fileIdOrUrl>
-  const emailParam = searchParams?.get("email");
-  const fileParam = searchParams?.get("file");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-      if (!u) {
-        // Not signed in: redirect to sign-in with next param so they return here
-        const current = typeof window !== "undefined" ? window.location.pathname + window.location.search : "/(dashboard)/(routes)/reciever";
-        router.push(`/signin?next=${encodeURIComponent(current)}`);
-      }
-    });
+    const params = new URLSearchParams(window.location.search);
+    const email = params.get("email");
+    if (!email) {
+      alert("Invalid link — no email found.");
+      return;
+    }
 
-    return () => unsubscribe();
-  }, [router]);
-
-  useEffect(() => {
-    if (loading) return;
-    if (!user) return; // onAuthStateChanged will redirect
-
-    const loadFiles = async () => {
+    const fetchFiles = async () => {
       try {
-        // Assume there's a collection 'sharedFiles' with field 'recipientEmail' and optionally 'fileId' or 'fileUrl'
-        const filesCol = collection(db, "sharedFiles");
-        let q;
-
-        if (fileParam) {
-          q = query(filesCol, where("fileId", "==", fileParam));
-        } else if (emailParam) {
-          q = query(filesCol, where("recipientEmail", "==", emailParam), orderBy("createdAt", "desc"), limit(50));
-        } else {
-          // If no params provided, fall back to files shared to the signed-in user's email
-          const userEmail = user.email;
-          q = query(filesCol, where("recipientEmail", "==", userEmail), orderBy("createdAt", "desc"), limit(50));
-        }
-
+        const q = query(
+          collection(db, "sharedFiles"),
+          where("recipientEmail", "==", email),
+          orderBy("createdAt", "desc")
+        );
         const snapshot = await getDocs(q);
-        const items = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setFiles(items);
+        const fileList = snapshot.docs.map((doc) => doc.data());
+        setFiles(fileList);
       } catch (err) {
-        console.error(err);
-        setError("Failed to load files.");
+        console.error("Error fetching files:", err);
+      } finally {
+        setLoading(false);
       }
     };
 
-    loadFiles();
-  }, [loading, user, emailParam, fileParam]);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p>Loading…</p>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return null; // redirect in progress
-  }
+    fetchFiles();
+  }, []);
 
   return (
-    <div className="min-h-screen p-6 bg-gray-50">
-      <div className="max-w-3xl mx-auto bg-white p-6 rounded shadow">
-        <h1 className="text-2xl font-bold mb-4">Files shared with you</h1>
-        {emailParam && (
-          <p className="text-sm text-gray-600 mb-4">Viewing files for: {emailParam}</p>
-        )}
-        {error && <p className="text-red-500 mb-4">{error}</p>}
+    <div className="min-h-screen bg-gray-100 flex flex-col items-center py-12">
+      <div className="w-full max-w-3xl bg-white rounded-xl shadow-md p-8">
+        <h2 className="text-2xl font-bold text-blue-600 mb-6">📁 Shared Files</h2>
 
-        {files.length === 0 ? (
-          <p className="text-gray-700">No files found.</p>
+        {loading ? (
+          <p>Loading files...</p>
+        ) : files.length === 0 ? (
+          <p>No files found for this email.</p>
         ) : (
-          <ul className="space-y-3">
-            {files.map((f) => (
-              <li key={f.id} className="p-3 border rounded flex justify-between items-center">
+          <ul className="space-y-4">
+            {files.map((file, index) => (
+              <li
+                key={index}
+                className="flex justify-between items-center border p-3 rounded-md"
+              >
                 <div>
-                  <div className="font-medium">{f.name || f.fileName || "Untitled"}</div>
-                  <div className="text-sm text-gray-500">{f.size ? `${Math.round(f.size/1024)} KB` : f.fileType || ""}</div>
+                  <p className="font-semibold">{file.fileName}</p>
+                  <p className="text-sm text-gray-500">
+                    Uploaded on:{" "}
+                    {file.createdAt?.seconds
+                      ? new Date(file.createdAt.seconds * 1000).toLocaleString()
+                      : "Unknown"}
+                  </p>
                 </div>
-                <div>
-                  {f.fileUrl ? (
-                    <a href={f.fileUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
-                      Download
-                    </a>
-                  ) : (
-                    <span className="text-sm text-gray-500">No link</span>
-                  )}
-                </div>
+                <a
+                  href={file.fileUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                >
+                  Download
+                </a>
               </li>
             ))}
           </ul>

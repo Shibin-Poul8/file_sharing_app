@@ -9,32 +9,52 @@ export async function POST(req) {
   try {
     const { recipient, fileUrl, fileName } = await req.json();
 
-    // Save file metadata in Firestore
-    const docRef = await addDoc(collection(db, "sharedFiles"), {
+    if (!recipient || !fileUrl) {
+      return NextResponse.json({ success: false, message: "Missing fields" });
+    }
+
+    // Save file info to Firestore
+    await addDoc(collection(db, "sharedFiles"), {
       recipientEmail: recipient,
       fileUrl,
       fileName,
       createdAt: serverTimestamp(),
     });
 
-    // Secure download link
-    const secureLink = `https://localhost:3000/download?file=${docRef.id}`;
+    // Build download page link
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+    const link = `${baseUrl}/download?email=${encodeURIComponent(recipient)}`;
 
+    // Send email with download page link
     await resend.emails.send({
-      from: "onboarding@resend.dev",
+      from: "noreply@resend.dev",
       to: recipient,
-      subject: "You've received a file",
+      subject: `You have received a file: ${fileName}`,
       html: `
-        <p>Hey,</p>
-        <p>You’ve received a file: <strong>${fileName}</strong></p>
-        <p>Download it securely here (login required):</p>
-        <a href="${secureLink}" target="_blank">${secureLink}</a>
+        <div style="font-family:sans-serif;padding:20px;">
+          <h2 style="color:#2563eb;">📁 File Sharing App</h2>
+          <p>Hello,</p>
+          <p>Someone shared <strong>${fileName}</strong> with you.</p>
+          <a href="${link}" style="
+            background:#2563eb;
+            color:white;
+            padding:10px 16px;
+            border-radius:6px;
+            text-decoration:none;
+            display:inline-block;
+            margin-top:10px;">
+            View Files
+          </a>
+          <p style="margin-top:20px;font-size:12px;color:#666;">
+            This link opens your secure download page.
+          </p>
+        </div>
       `,
     });
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Error:", error);
-    return NextResponse.json({ success: false, error: error.message });
+  } catch (err) {
+    console.error("Error sending email:", err);
+    return NextResponse.json({ success: false, error: err.message });
   }
 }
