@@ -1,7 +1,7 @@
 "use client";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { db, storage } from "../../firebase/config";
+import { db, storage } from "../firebase/config.js";
 import { doc, getDoc } from "firebase/firestore";
 import { ref, getDownloadURL } from "firebase/storage";
 import { getAuth, onAuthStateChanged, signOut } from "firebase/auth";
