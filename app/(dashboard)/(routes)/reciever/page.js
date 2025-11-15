@@ -1,27 +1,33 @@
 "use client";
 import { useEffect, useState } from "react";
-import { db } from "../../../firebase/config";
+import { db, auth } from "../../../firebase/config";
+import { onAuthStateChanged } from "firebase/auth";
 import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
+import { useRouter } from "next/navigation";
 
-export default function DownloadPage() {
+export default function ReceiverPage() {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const email = params.get("email");
-    if (!email) {
-      alert("Invalid link — no email found.");
-      return;
-    }
+    onAuthStateChanged(auth, async (user) => {
+      // User NOT logged in → redirect to login
+      if (!user) {
+        router.push("/login?redirect=/receiver");
+        return;
+      }
 
-    const fetchFiles = async () => {
+      // User logged in → use their email
+      const email = user.email;
+
       try {
         const q = query(
           collection(db, "sharedFiles"),
           where("recipientEmail", "==", email),
           orderBy("createdAt", "desc")
         );
+
         const snapshot = await getDocs(q);
         const fileList = snapshot.docs.map((doc) => doc.data());
         setFiles(fileList);
@@ -30,20 +36,18 @@ export default function DownloadPage() {
       } finally {
         setLoading(false);
       }
-    };
-
-    fetchFiles();
+    });
   }, []);
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col items-center py-12">
       <div className="w-full max-w-3xl bg-white rounded-xl shadow-md p-8">
-        <h2 className="text-2xl font-bold text-blue-600 mb-6">📁 Shared Files</h2>
+        <h2 className="text-2xl font-bold text-blue-600 mb-6">📁 Your Shared Files</h2>
 
         {loading ? (
           <p>Loading files...</p>
         ) : files.length === 0 ? (
-          <p>No files found for this email.</p>
+          <p>No files shared with your account.</p>
         ) : (
           <ul className="space-y-4">
             {files.map((file, index) => (
