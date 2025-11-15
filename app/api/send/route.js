@@ -23,7 +23,7 @@ export async function POST(req) {
 
     // Build download page link
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
-    const link = `${baseUrl}/download?email=${encodeURIComponent(recipient)}`;
+    const link = `${baseUrl}/reciever`;
 
     // Send email with download page link
     await resend.emails.send({
