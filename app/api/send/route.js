@@ -1,9 +1,7 @@
-import { Resend } from "resend";
+import nodemailer from "nodemailer";
 import { NextResponse } from "next/server";
 import { db } from "../../firebase/config.js";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function POST(req) {
   try {
@@ -21,20 +19,31 @@ export async function POST(req) {
       createdAt: serverTimestamp(),
     });
 
-    // Build download page link
+    // Build receiver page link
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
     const link = `${baseUrl}/reciever`;
 
-    // Send email with download page link
-    await resend.emails.send({
-      from: "noreply@resend.dev",
+    // Setup Gmail SMTP Transport
+    let transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.GMAIL_USER,            // your Gmail
+        pass: process.env.GMAIL_APP_PASSWORD,    // Google App Password
+      },
+    });
+
+    // Send email
+    await transporter.sendMail({
+      from: `"CloudVault" <${process.env.GMAIL_USER}>`,  // Display name spoofing
       to: recipient,
-      subject: `You have received a file: ${fileName}`,
+      subject: `CloudVault: You received a file - ${fileName}`,
       html: `
         <div style="font-family:sans-serif;padding:20px;">
-          <h2 style="color:#2563eb;">📁 File Sharing App</h2>
+          <h2 style="color:#2563eb;">📁 CloudVault File Delivery</h2>
           <p>Hello,</p>
-          <p>Someone shared <strong>${fileName}</strong> with you.</p>
+
+          <p>You have received <strong>${fileName}</strong> securely via <strong>CloudVault</strong>.</p>
+
           <a href="${link}" style="
             background:#2563eb;
             color:white;
@@ -43,10 +52,11 @@ export async function POST(req) {
             text-decoration:none;
             display:inline-block;
             margin-top:10px;">
-            View Files
+            View Your Files
           </a>
+
           <p style="margin-top:20px;font-size:12px;color:#666;">
-            This link opens your secure download page.
+            CloudVault — Secure File Sharing Service
           </p>
         </div>
       `,
