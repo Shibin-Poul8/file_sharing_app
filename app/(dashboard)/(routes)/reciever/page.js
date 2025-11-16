@@ -14,7 +14,7 @@ export default function ReceiverPage() {
     onAuthStateChanged(auth, async (user) => {
       // User NOT logged in → redirect to login
       if (!user) {
-        router.push("/login?redirect=/receiver");
+        router.push("/signin?redirect=/receiver");
         return;
       }
 

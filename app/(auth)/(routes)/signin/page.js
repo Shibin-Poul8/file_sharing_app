@@ -10,14 +10,18 @@ export default function SignInPage() {
   const [error, setError] = useState("");
   const router = useRouter();
   const searchParams = useSearchParams();
-  const nextPath = searchParams?.get("next") || "/Upload";
+
+  // ⭐ FIXED: use "redirect" instead of "next"
+  const redirectTo = searchParams.get("redirect") || "/Upload";
 
   const handleSignIn = async (e) => {
     e.preventDefault();
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      // After successful sign-in, redirect to the intended page (if provided)
-      router.push(nextPath);
+
+      // ⭐ FIXED: redirect correctly after login
+      router.push(redirectTo);
+
     } catch (err) {
       setError(err.message);
       console.error(err);
@@ -39,7 +43,7 @@ export default function SignInPage() {
         <input
           type="email"
           placeholder="Email"
-          className="w-full border p-3 rounded mb-4 placeholder -[#1f2937] text-gray-500"
+          className="w-full border p-3 rounded mb-4 text-gray-500"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
@@ -48,7 +52,7 @@ export default function SignInPage() {
         <input
           type="password"
           placeholder="Password"
-          className="w-full border p-3 rounded mb-4 placeholder -[#1f2937] text-gray-500"
+          className="w-full border p-3 rounded mb-4 text-gray-500"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
