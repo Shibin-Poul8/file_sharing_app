@@ -108,7 +108,7 @@ export default function SignUpPage() {
           {loading ? 'Creating...' : 'Create Account'}
         </button>
 
-        <p className="text-sm text-center mt-4">
+        <p className="text-sm text-center mt-4 text-gray-400">
           Already have an account?{" "}
           <a href="/signin" className="text-blue-500 hover:underline">
             Login

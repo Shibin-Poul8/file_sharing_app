@@ -11,7 +11,6 @@ export default function SignInPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // ⭐ FIXED: use "redirect" instead of "next"
   const redirectTo = searchParams.get("redirect") || "/Upload";
 
   const handleSignIn = async (e) => {
@@ -19,7 +18,6 @@ export default function SignInPage() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
 
-      // ⭐ FIXED: redirect correctly after login
       router.push(redirectTo);
 
     } catch (err) {
@@ -65,7 +63,7 @@ export default function SignInPage() {
           Login
         </button>
 
-        <p className="text-sm text-center mt-4">
+        <p className="text-sm text-center mt-4 text-gray-400">
           Don’t have an account?{" "}
           <a href="/signup" className="text-blue-500 hover:underline">
             Sign up
