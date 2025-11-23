@@ -102,7 +102,7 @@ export default function Header() {
         {/* Logo */}
         <div className="flex items-center gap-2">
           <Image src="/logo.svg" alt="Logo" width={36} height={40} />
-          <span className="text-xl font-bold text-blue-600">FileShare</span>
+          <span className="text-x1 font-bold text-blue-600">CloudVault</span>
         </div>
 
         {/* Navigation */}
