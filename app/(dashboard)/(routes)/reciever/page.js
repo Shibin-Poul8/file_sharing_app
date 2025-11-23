@@ -2,9 +2,9 @@
 import { useEffect, useState } from "react";
 import { db, auth } from "../../../firebase/config";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, getDocs, orderBy, query } from "firebase/firestore";
+import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import { deriveKeyPBKDF2, decryptArrayBufferWithAesGcm, base64ToArrayBuffer, deriveSharedAesKeyFromECDH } from "../../../_utils/cryptoClient";
+import { deriveKeyPBKDF2, decryptArrayBufferWithAesGcm, deriveSharedAesKeyFromECDH } from "../../../_utils/cryptoClient";
 
 export default function ReceiverPage() {
   const [files, setFiles] = useState([]);
@@ -15,24 +15,17 @@ export default function ReceiverPage() {
   const router = useRouter();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (!currentUser) {
         router.push("/signin?redirect=/reciever");
         return;
       }
       setUser(currentUser);
-    });
 
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!user) return;
-
-    const fetchFiles = async () => {
       try {
         const q = query(
           collection(db, "sharedFiles"),
+          where("recipientEmail", "==", currentUser.email),
           orderBy("createdAt", "desc")
         );
 
@@ -44,10 +37,10 @@ export default function ReceiverPage() {
       } finally {
         setFileLoading(false);
       }
-    };
+    });
 
-    fetchFiles();
-  }, [user]);
+    return () => unsubscribe();
+  }, []);
 
   if (!user) {
     return (
@@ -78,9 +71,7 @@ export default function ReceiverPage() {
           <div className="text-center py-12">
             <div className="text-6xl mb-4">📭</div>
             <p className="text-gray-600 text-lg">No files shared with your account.</p>
-            <p className="text-gray-500 text-sm mt-2">
-              Ask others to share files with you using your email address.
-            </p>
+            <p className="text-gray-500 text-sm mt-2">Ask others to share files with you using your email address.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -91,26 +82,18 @@ export default function ReceiverPage() {
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1">
-                    <p className="font-semibold text-gray-900 break-all">
-                      📄 {file.fileName}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Shared on:{" "}
-                      {file.createdAt?.seconds
-                        ? new Date(file.createdAt.seconds * 1000).toLocaleDateString()
-                        : "Unknown"}
-                    </p>
+                    <p className="font-semibold text-gray-900 break-all">📄 {file.fileName}</p>
+                    <p className="text-xs text-gray-500 mt-1">Shared on: {file.createdAt?.seconds ? new Date(file.createdAt.seconds * 1000).toLocaleDateString() : "Unknown"}</p>
                   </div>
                 </div>
+
                 {file.encrypted ? (
                   <div className="space-y-2">
                     <input
                       type="password"
                       placeholder="Enter passphrase to decrypt"
                       value={passphrases[index] || ""}
-                      onChange={(e) =>
-                        setPassphrases((p) => ({ ...p, [index]: e.target.value }))
-                      }
+                      onChange={(e) => setPassphrases((p) => ({ ...p, [index]: e.target.value }))}
                       className="w-full border p-2 rounded mb-2"
                     />
                     <button
@@ -122,12 +105,9 @@ export default function ReceiverPage() {
                           // 2) ECDH-based: file.ephemeralPublicKey + file.iv
                           let aesKey;
                           if (file.ephemeralPublicKey) {
-                            // ECDH flow: load recipient private JWK from localStorage
                             const storageKey = `ecdh_private_${user.uid}`;
                             const privJson = localStorage.getItem(storageKey);
-                            if (!privJson) {
-                              throw new Error('Private key not found in this browser. Uploading user must have used ECDH; you need your private key to decrypt.');
-                            }
+                            if (!privJson) throw new Error('Private key not found in this browser. You need the private key to decrypt ECDH-encrypted files.');
                             const privJwk = JSON.parse(privJson);
                             aesKey = await deriveSharedAesKeyFromECDH(privJwk, file.ephemeralPublicKey);
                           } else {
@@ -137,12 +117,9 @@ export default function ReceiverPage() {
                             aesKey = key;
                           }
 
-                          // fetch encrypted file
                           const resp = await fetch(file.fileUrl);
                           const cipherBuf = await resp.arrayBuffer();
-                          // decrypt
                           const plain = await decryptArrayBufferWithAesGcm(aesKey, cipherBuf, file.iv);
-                          // create blob and download
                           const blob = new Blob([plain]);
                           const url = URL.createObjectURL(blob);
                           const a = document.createElement('a');
@@ -166,14 +143,7 @@ export default function ReceiverPage() {
                     </button>
                   </div>
                 ) : (
-                  <a
-                    href={file.fileUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition inline-block text-center"
-                  >
-                    ⬇️ Download
-                  </a>
+                  <a href={file.fileUrl} target="_blank" rel="noreferrer" className="w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition inline-block text-center mt-3">⬇️ Download</a>
                 )}
               </div>
             ))}

@@ -7,7 +7,7 @@ export default function Hero() {
     <>
       <header className="fixed top-0 left-0 right-0 bg-white shadow-md z-20">
         <nav className="mx-auto max-w-screen-xl px-4 py-4 flex justify-between items-center">
-          <div className="text-2xl font-bold text-blue-600">FileShare</div>
+          <div className="text-2xl font-bold text-blue-600">CloudVault</div>
           <div className="flex gap-4">
             <Link href="/login" className="text-gray-600 hover:text-blue-600">
               Login
