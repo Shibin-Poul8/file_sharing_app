@@ -80,7 +80,8 @@ export async function generateECDHKeyPair() {
   const rawPub = await window.crypto.subtle.exportKey('raw', kp.publicKey); // ArrayBuffer
   const pubBase64 = arrayBufferToBase64(rawPub);
   const privJwk = await window.crypto.subtle.exportKey('jwk', kp.privateKey);
-  return { publicKey: pubBase64, privateJwk: privJwk };
+  // return both the exported private JWK and the in-memory private CryptoKey
+  return { publicKey: pubBase64, privateJwk: privJwk, privateKey: kp.privateKey };
 }
 
 export async function importECDHPublicKey(pubBase64) {
@@ -126,4 +127,41 @@ export async function deriveSharedAesKeyFromECDH(privateJwkOrKey, otherPublicBas
   );
 
   return derivedKey;
+}
+
+// Convenience wrapper: encrypt plaintext ArrayBuffer for a recipient's ECDH public key.
+// Returns { cipher: Uint8Array, iv: string (base64), ephemeralPublicKey: string }
+export async function encryptWithRecipientPublicKey(recipientPublicBase64, plainArrayBuffer) {
+  // generate ephemeral keypair
+  const kp = await window.crypto.subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' },
+    true,
+    ['deriveKey', 'deriveBits']
+  );
+
+  const rawPub = await window.crypto.subtle.exportKey('raw', kp.publicKey);
+  const ephemeralPubBase64 = arrayBufferToBase64(rawPub);
+
+  // import recipient public and derive shared AES key
+  const recipientPub = await importECDHPublicKey(recipientPublicBase64);
+  const derivedKey = await window.crypto.subtle.deriveKey(
+    { name: 'ECDH', public: recipientPub },
+    kp.privateKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+
+  const { cipher, iv } = await encryptArrayBufferWithAesGcm(derivedKey, plainArrayBuffer);
+  return { cipher, iv, ephemeralPublicKey: ephemeralPubBase64 };
+}
+
+// Convenience wrapper: decrypt cipher (ArrayBuffer or Uint8Array) using recipient's private JWK and sender's ephemeral public key (base64).
+// Returns decrypted ArrayBuffer.
+export async function decryptWithPrivateJwkAndEphemeral(privateJwk, ephemeralPublicBase64, cipherBuffer, ivBase64) {
+  const aesKey = await deriveSharedAesKeyFromECDH(privateJwk, ephemeralPublicBase64);
+  // cipherBuffer may be Uint8Array or ArrayBuffer
+  const buf = cipherBuffer instanceof Uint8Array ? cipherBuffer.buffer : cipherBuffer;
+  const plain = await decryptArrayBufferWithAesGcm(aesKey, buf, ivBase64);
+  return plain;
 }

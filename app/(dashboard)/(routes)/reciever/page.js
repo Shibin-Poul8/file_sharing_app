@@ -4,24 +4,21 @@ import { db, auth } from "../../../firebase/config";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import { deriveKeyPBKDF2, decryptArrayBufferWithAesGcm, deriveSharedAesKeyFromECDH } from "../../../_utils/cryptoClient";
+import { deriveKeyPBKDF2, decryptArrayBufferWithAesGcm, decryptWithPrivateJwkAndEphemeral } from "../../../_utils/cryptoClient";
 
 export default function ReceiverPage() {
   const [files, setFiles] = useState([]);
   const [fileLoading, setFileLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(null);
   const [user, setUser] = useState(null);
   const [passphrases, setPassphrases] = useState({});
   const [decryptingIdx, setDecryptingIdx] = useState(null);
   const router = useRouter();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (!currentUser) {
-        router.push("/signin?redirect=/reciever");
-        return;
-      }
-      setUser(currentUser);
-
+    const fetchFiles = async (currentUser) => {
+      setFetchError(null);
+      setFileLoading(true);
       try {
         const q = query(
           collection(db, "sharedFiles"),
@@ -34,12 +31,32 @@ export default function ReceiverPage() {
         setFiles(fileList);
       } catch (err) {
         console.error("Error fetching files:", err);
+        setFetchError(err.message || String(err));
       } finally {
         setFileLoading(false);
       }
+    };
+
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      if (!currentUser) {
+        router.push("/signin?redirect=/reciever");
+        return;
+      }
+      setUser(currentUser);
+      // load files for current user
+      fetchFiles(currentUser);
     });
 
-    return () => unsubscribe();
+    // safety timeout: if nothing happens in 10s, stop loading and show a message
+    const safety = setTimeout(() => {
+      setFileLoading(false);
+      if (!user) setFetchError('Still waiting for authentication or network — try refreshing.');
+    }, 10000);
+
+    return () => {
+      clearTimeout(safety);
+      unsubscribe();
+    };
   }, []);
 
   if (!user) {
@@ -56,6 +73,32 @@ export default function ReceiverPage() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading your files...</p>
+          {fetchError && <p className="text-sm text-red-500 mt-2">{fetchError}</p>}
+          {user && (
+            <button
+              onClick={async () => {
+                setFileLoading(true);
+                setFetchError(null);
+                try {
+                  const q = query(
+                    collection(db, "sharedFiles"),
+                    where("recipientEmail", "==", user.email),
+                    orderBy("createdAt", "desc")
+                  );
+                  const snapshot = await getDocs(q);
+                  setFiles(snapshot.docs.map((d) => d.data()));
+                } catch (err) {
+                  console.error('Retry fetch failed', err);
+                  setFetchError(err.message || String(err));
+                } finally {
+                  setFileLoading(false);
+                }
+              }}
+              className="mt-3 px-3 py-2 bg-blue-600 text-white rounded"
+            >
+              Retry
+            </button>
+          )}
         </div>
       </div>
     );
@@ -109,14 +152,27 @@ export default function ReceiverPage() {
                             const privJson = localStorage.getItem(storageKey);
                             if (!privJson) throw new Error('Private key not found in this browser. You need the private key to decrypt ECDH-encrypted files.');
                             const privJwk = JSON.parse(privJson);
-                            aesKey = await deriveSharedAesKeyFromECDH(privJwk, file.ephemeralPublicKey);
+                            // Use convenience wrapper to derive shared key and decrypt
+                            const resp = await fetch(file.fileUrl);
+                            const cipherBuf = await resp.arrayBuffer();
+                            const plain = await decryptWithPrivateJwkAndEphemeral(privJwk, file.ephemeralPublicKey, cipherBuf, file.iv);
+                            const blob = new Blob([plain]);
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = file.fileName || 'download.bin';
+                            document.body.appendChild(a);
+                            a.click();
+                            a.remove();
+                            URL.revokeObjectURL(url);
+                            setDecryptingIdx(null);
+                            return;
                           } else {
                             const pass = passphrases[index];
                             if (!pass) throw new Error('Please enter the passphrase');
                             const { key } = await deriveKeyPBKDF2(pass, file.salt);
                             aesKey = key;
                           }
-
                           const resp = await fetch(file.fileUrl);
                           const cipherBuf = await resp.arrayBuffer();
                           const plain = await decryptArrayBufferWithAesGcm(aesKey, cipherBuf, file.iv);

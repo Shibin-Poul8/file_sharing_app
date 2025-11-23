@@ -8,7 +8,7 @@ import {
   uploadBytesResumable,
   getDownloadURL,
 } from "firebase/storage";
-import { deriveKeyPBKDF2, encryptArrayBufferWithAesGcm, arrayBufferToBase64, generateECDHKeyPair, deriveSharedAesKeyFromECDH } from "../../../_utils/cryptoClient";
+import { deriveKeyPBKDF2, encryptArrayBufferWithAesGcm, arrayBufferToBase64, encryptWithRecipientPublicKey } from "../../../_utils/cryptoClient";
 import { collection, addDoc, serverTimestamp, query as firestoreQuery, where, getDocs } from "firebase/firestore";
 
 export default function UploadPage() {
@@ -129,37 +129,38 @@ export default function UploadPage() {
               const recipientDoc = snap.docs[0].data();
               const recipientPub = recipientDoc?.publicKey;
               if (recipientPub) {
-                // generate ephemeral keypair
-                const { publicKey: ephemeralPub, privateJwk: ephemeralPrivJwk } = await generateECDHKeyPair();
-                // derive shared AES key
-                const aesKey = await deriveSharedAesKeyFromECDH(ephemeralPrivJwk, recipientPub);
-                // encrypt
-                const ab = await file.arrayBuffer();
-                const { cipher, iv } = await encryptArrayBufferWithAesGcm(aesKey, ab);
-                const blob = new Blob([cipher], { type: 'application/octet-stream' });
-                const fileRef = storageRef(storage, `uploads/${file.name}.enc`);
-                const uploadTask = uploadBytesResumable(fileRef, blob);
-                uploadTask.on(
-                  'state_changed',
-                  (snapshot) => setProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)),
-                  (error) => console.error('❌ Upload Error:', error),
-                  async () => {
-                    const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-                    setUrl(downloadURL);
-                    // Save file info and ECDH metadata (ephemeral public key)
-                    await addDoc(collection(db, 'sharedFiles'), {
-                      recipientEmail: recipient,
-                      fileUrl: downloadURL,
-                      fileName: file.name,
-                      encrypted: true,
-                      ephemeralPublicKey: ephemeralPub,
-                      iv: iv,
-                      createdAt: serverTimestamp(),
-                    });
-                    console.log('✅ Uploaded ECDH-encrypted file URL:', downloadURL);
-                  }
-                );
-                return; // done
+                try {
+                  const ab = await file.arrayBuffer();
+                  // Use convenience wrapper that generates ephemeral key, derives AES key and encrypts
+                  const { cipher, iv, ephemeralPublicKey } = await encryptWithRecipientPublicKey(recipientPub, ab);
+
+                  const blob = new Blob([cipher], { type: 'application/octet-stream' });
+                  const fileRef = storageRef(storage, `uploads/${file.name}.enc`);
+                  const uploadTask = uploadBytesResumable(fileRef, blob);
+                  uploadTask.on(
+                    'state_changed',
+                    (snapshot) => setProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)),
+                    (error) => console.error('❌ Upload Error:', error),
+                    async () => {
+                      const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                      setUrl(downloadURL);
+                      // Save file info and ECDH metadata (ephemeral public key)
+                      await addDoc(collection(db, 'sharedFiles'), {
+                        recipientEmail: recipient,
+                        fileUrl: downloadURL,
+                        fileName: file.name,
+                        encrypted: true,
+                        ephemeralPublicKey: ephemeralPublicKey,
+                        iv: iv,
+                        createdAt: serverTimestamp(),
+                      });
+                      console.log('✅ Uploaded ECDH-encrypted file URL:', downloadURL);
+                    }
+                  );
+                  return; // done
+                } catch (e) {
+                  console.warn('ECDH upload failed, falling back to plain upload', e);
+                }
               }
             }
           } catch (e) {

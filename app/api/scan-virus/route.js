@@ -33,14 +33,34 @@ async function scanFileWithVirusTotal(fileBuffer, fileName) {
       }
     );
 
-    if (!uploadResponse.ok) {
-      throw new Error(
-        `VirusTotal upload failed: ${uploadResponse.statusText}`
-      );
+    // Attempt to parse response body even on non-OK to handle cases like "Conflict"
+    let uploadData = null;
+    try {
+      uploadData = await uploadResponse.json();
+    } catch (e) {
+      // ignore JSON parse errors
+      uploadData = null;
     }
 
-    const uploadData = await uploadResponse.json();
-    const analysisId = uploadData.data.id;
+    if (!uploadResponse.ok) {
+      // Some VirusTotal responses (e.g. Conflict / duplicate file) may include an existing analysis id in the body.
+      const possibleId = uploadData && uploadData.data && uploadData.data.id;
+      if (possibleId) {
+        // proceed using the provided id
+        console.warn(`VirusTotal upload returned ${uploadResponse.status} ${uploadResponse.statusText} but provided an analysis id. Proceeding to poll.`);
+        var analysisId = possibleId;
+      } else {
+        // try to include helpful message from VT response body
+        const errMsg = (uploadData && (uploadData.error?.message || uploadData.error?.details || JSON.stringify(uploadData))) || uploadResponse.statusText;
+        throw new Error(`VirusTotal upload failed: ${uploadResponse.status} ${errMsg}`);
+      }
+    } else {
+      const possibleId = uploadData && uploadData.data && uploadData.data.id;
+      if (!possibleId) {
+        throw new Error('VirusTotal upload did not return an analysis id');
+      }
+      var analysisId = possibleId;
+    }
 
     // Poll for analysis results (with timeout)
     let analysisResult = null;
