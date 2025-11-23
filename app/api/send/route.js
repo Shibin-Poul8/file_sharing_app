@@ -32,6 +32,14 @@ export async function POST(req) {
       },
     });
 
+    // Verify transporter connection early to provide clearer errors
+    try {
+      await transporter.verify();
+    } catch (verifyErr) {
+      console.error('SMTP verify failed:', verifyErr);
+      return NextResponse.json({ success: false, error: 'SMTP verify failed: ' + (verifyErr.message || verifyErr.toString()) });
+    }
+
     // Send email
     await transporter.sendMail({
       from: `"CloudVault" <${process.env.GMAIL_USER}>`,  // Display name spoofing

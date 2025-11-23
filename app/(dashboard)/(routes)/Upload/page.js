@@ -1,6 +1,8 @@
 "use client";
-import React, { useState, useRef } from "react";
-import { storage, db } from "../../../firebase/config";
+import React, { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { storage, db, auth } from "../../../firebase/config";
+import { onAuthStateChanged } from "firebase/auth";
 import {
   ref as storageRef,
   uploadBytesResumable,
@@ -9,6 +11,7 @@ import {
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
 export default function UploadPage() {
+  const router = useRouter();
   const [file, setFile] = useState(null);
   const [progress, setProgress] = useState(0);
   const [url, setUrl] = useState("");
@@ -18,6 +21,17 @@ export default function UploadPage() {
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState(null);
   const inputRef = useRef();
+
+  // Redirect unauthenticated users to signin
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      if (!u) {
+        // User is signed out — redirect to signin
+        router.replace("/signin");
+      }
+    });
+    return () => unsub();
+  }, []);
 
   // 🔹 Scan file for viruses (auto-triggered)
   const handleScanVirus = async (fileToScan) => {
@@ -175,12 +189,7 @@ export default function UploadPage() {
                     ? "✅ File is Safe"
                     : "⚠️ Malware Detected"}
                 </p>
-                <p className="text-gray-700 mt-2">
-                  Detections: <strong>{scanResult.malicious}</strong> / {scanResult.total}
-                </p>
-                <p className="text-gray-600 text-xs mt-1">
-                  Suspicious: {scanResult.suspicious} | Clean: {scanResult.undetected}
-                </p>
+                
               </div>
             )}
             {url && (

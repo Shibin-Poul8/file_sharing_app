@@ -2,9 +2,10 @@ import React from 'react'
 
 function layout({children}) {
   return (
-    <div>
-    
-    {children}
+    <div className="min-h-screen bg-gray-50">
+      <main>
+        {children}
+      </main>
     </div>
   )
 }
