@@ -10,9 +10,18 @@ export default function ReceiverPage() {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
+<<<<<<< HEAD
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
     });
+=======
+    onAuthStateChanged(auth, async (user) => {
+      // User NOT logged in → redirect to login
+      if (!user) {
+        router.push("/signin?redirect=/receiver");
+        return;
+      }
+>>>>>>> 8e70d708b99b19476cffb1b6e918ae9957ea14eb
 
     return () => unsubscribe();
   }, []);

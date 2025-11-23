@@ -10,12 +10,24 @@ export default function SignInPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const router = useRouter();
+<<<<<<< HEAD
+=======
+  const searchParams = useSearchParams();
+
+  const redirectTo = searchParams.get("redirect") || "/Upload";
+>>>>>>> 8e70d708b99b19476cffb1b6e918ae9957ea14eb
 
   const handleSignIn = async (e) => {
     e.preventDefault();
     try {
       await signInWithEmailAndPassword(auth, email, password);
+<<<<<<< HEAD
       router.push("/Upload");
+=======
+
+      router.push(redirectTo);
+
+>>>>>>> 8e70d708b99b19476cffb1b6e918ae9957ea14eb
     } catch (err) {
       setError(err.message);
       console.error(err);
@@ -37,7 +49,7 @@ export default function SignInPage() {
         <input
           type="email"
           placeholder="Email"
-          className="w-full border p-3 rounded mb-4 placeholder -[#1f2937] text-gray-500"
+          className="w-full border p-3 rounded mb-4 text-gray-500"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
@@ -46,7 +58,7 @@ export default function SignInPage() {
         <input
           type="password"
           placeholder="Password"
-          className="w-full border p-3 rounded mb-4 placeholder -[#1f2937] text-gray-500"
+          className="w-full border p-3 rounded mb-4 text-gray-500"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
@@ -59,7 +71,7 @@ export default function SignInPage() {
           Login
         </button>
 
-        <p className="text-sm text-center mt-4">
+        <p className="text-sm text-center mt-4 text-gray-400">
           Don’t have an account?{" "}
           <a href="/signup" className="text-blue-500 hover:underline">
             Sign up
