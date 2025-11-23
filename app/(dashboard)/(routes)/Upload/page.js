@@ -15,11 +15,57 @@ export default function UploadPage() {
   const [recipient, setRecipient] = useState("");
   const [sendStatus, setSendStatus] = useState("");
   const [isDragging, setIsDragging] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState(null);
   const inputRef = useRef();
+
+  // 🔹 Scan file for viruses (auto-triggered)
+  const handleScanVirus = async (fileToScan) => {
+    setScanning(true);
+    setScanResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", fileToScan);
+
+      const res = await fetch("/api/scan-virus", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setScanResult(data.data);
+      } else {
+        console.error("Scan error:", data.error);
+        setScanResult(null);
+      }
+    } catch (err) {
+      console.error("Scan error:", err);
+      setScanResult(null);
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  // 🔹 Handle file selection and auto-scan
+  const handleFileSelect = (selectedFile) => {
+    setFile(selectedFile);
+    setScanResult(null);
+    if (selectedFile) {
+      handleScanVirus(selectedFile);
+    }
+  };
 
   // 🔹 Upload to Firebase Storage
   const handleUpload = () => {
     if (!file) return alert("Please select a file first!");
+    
+    // Prevent upload if malware detected
+    if (scanResult && !scanResult.safe) {
+      return alert("⚠️ Malware detected! Cannot upload this file.");
+    }
 
     const fileRef = storageRef(storage, `uploads/${file.name}`);
     const uploadTask = uploadBytesResumable(fileRef, file);
@@ -71,7 +117,7 @@ export default function UploadPage() {
             <input
               type="file"
               ref={inputRef}
-              onChange={(e) => setFile(e.target.files[0])}
+              onChange={(e) => handleFileSelect(e.target.files[0])}
               className="hidden"
             />
             <div
@@ -88,7 +134,7 @@ export default function UploadPage() {
                 e.preventDefault();
                 setIsDragging(false);
                 const dropped = e.dataTransfer.files?.[0];
-                if (dropped) setFile(dropped);
+                if (dropped) handleFileSelect(dropped);
               }}
               className={`mb-4 p-6 border-2 rounded-md cursor-pointer ${
                 isDragging
@@ -106,8 +152,36 @@ export default function UploadPage() {
             >
               Upload
             </button>
+            {scanning && (
+              <p className="ml-2 inline-block text-purple-600 text-sm">🔍 Scanning for viruses...</p>
+            )}
             {progress > 0 && (
               <p className="mt-3 text-gray-700 text-sm">Progress: {progress}%</p>
+            )}
+            {scanResult && (
+              <div
+                className={`mt-4 p-4 rounded-md text-sm ${
+                  scanResult.safe
+                    ? "bg-green-50 border border-green-300"
+                    : "bg-red-50 border border-red-300"
+                }`}
+              >
+                <p
+                  className={`font-semibold ${
+                    scanResult.safe ? "text-green-700" : "text-red-700"
+                  }`}
+                >
+                  {scanResult.safe
+                    ? "✅ File is Safe"
+                    : "⚠️ Malware Detected"}
+                </p>
+                <p className="text-gray-700 mt-2">
+                  Detections: <strong>{scanResult.malicious}</strong> / {scanResult.total}
+                </p>
+                <p className="text-gray-600 text-xs mt-1">
+                  Suspicious: {scanResult.suspicious} | Clean: {scanResult.undetected}
+                </p>
+              </div>
             )}
             {url && (
               <p className="mt-3 text-green-600 text-sm break-all">
