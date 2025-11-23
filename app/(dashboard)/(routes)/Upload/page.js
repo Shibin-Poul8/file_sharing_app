@@ -8,7 +8,8 @@ import {
   uploadBytesResumable,
   getDownloadURL,
 } from "firebase/storage";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { deriveKeyPBKDF2, encryptArrayBufferWithAesGcm, arrayBufferToBase64, generateECDHKeyPair, deriveSharedAesKeyFromECDH } from "../../../_utils/cryptoClient";
+import { collection, addDoc, serverTimestamp, query as firestoreQuery, where, getDocs } from "firebase/firestore";
 
 export default function UploadPage() {
   const router = useRouter();
@@ -20,6 +21,7 @@ export default function UploadPage() {
   const [isDragging, setIsDragging] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState(null);
+  const [passphrase, setPassphrase] = useState("");
   const inputRef = useRef();
 
   // Redirect unauthenticated users to signin
@@ -80,25 +82,123 @@ export default function UploadPage() {
     if (scanResult && !scanResult.safe) {
       return alert("⚠️ Malware detected! Cannot upload this file.");
     }
+    // If user provided a passphrase, encrypt the file client-side using PBKDF2 -> AES-GCM
+    const doUpload = async () => {
+      try {
+        if (passphrase && passphrase.trim() !== "") {
+          // Read file as ArrayBuffer
+          const ab = await file.arrayBuffer();
+          // Derive key and get salt
+          const { key, salt } = await deriveKeyPBKDF2(passphrase);
+          // Encrypt
+          const { cipher, iv } = await encryptArrayBufferWithAesGcm(key, ab);
+          // Upload encrypted blob
+          const blob = new Blob([cipher], { type: "application/octet-stream" });
+          const fileRef = storageRef(storage, `uploads/${file.name}.enc`);
+          const uploadTask = uploadBytesResumable(fileRef, blob);
+          uploadTask.on(
+            "state_changed",
+            (snapshot) => {
+              setProgress(
+                Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+              );
+            },
+            (error) => console.error("❌ Upload Error:", error),
+            async () => {
+              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+              setUrl(downloadURL);
+              // Save metadata: salt and iv (base64)
+              await addDoc(collection(db, "sharedFiles"), {
+                recipientEmail: recipient,
+                fileUrl: downloadURL,
+                fileName: file.name,
+                encrypted: true,
+                salt: salt,
+                iv: iv,
+                createdAt: serverTimestamp(),
+              });
+              console.log("✅ Uploaded encrypted file URL:", downloadURL);
+            }
+          );
+        } else {
+          // Try ECDH: find recipient public key in users collection by email
+          try {
+            const q = firestoreQuery(collection(db, 'users'), where('email', '==', recipient));
+            const snap = await getDocs(q);
+            if (!snap.empty) {
+              const recipientDoc = snap.docs[0].data();
+              const recipientPub = recipientDoc?.publicKey;
+              if (recipientPub) {
+                // generate ephemeral keypair
+                const { publicKey: ephemeralPub, privateJwk: ephemeralPrivJwk } = await generateECDHKeyPair();
+                // derive shared AES key
+                const aesKey = await deriveSharedAesKeyFromECDH(ephemeralPrivJwk, recipientPub);
+                // encrypt
+                const ab = await file.arrayBuffer();
+                const { cipher, iv } = await encryptArrayBufferWithAesGcm(aesKey, ab);
+                const blob = new Blob([cipher], { type: 'application/octet-stream' });
+                const fileRef = storageRef(storage, `uploads/${file.name}.enc`);
+                const uploadTask = uploadBytesResumable(fileRef, blob);
+                uploadTask.on(
+                  'state_changed',
+                  (snapshot) => setProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)),
+                  (error) => console.error('❌ Upload Error:', error),
+                  async () => {
+                    const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                    setUrl(downloadURL);
+                    // Save file info and ECDH metadata (ephemeral public key)
+                    await addDoc(collection(db, 'sharedFiles'), {
+                      recipientEmail: recipient,
+                      fileUrl: downloadURL,
+                      fileName: file.name,
+                      encrypted: true,
+                      ephemeralPublicKey: ephemeralPub,
+                      iv: iv,
+                      createdAt: serverTimestamp(),
+                    });
+                    console.log('✅ Uploaded ECDH-encrypted file URL:', downloadURL);
+                  }
+                );
+                return; // done
+              }
+            }
+          } catch (e) {
+            console.warn('ECDH upload failed, falling back to plain upload', e);
+          }
 
-    const fileRef = storageRef(storage, `uploads/${file.name}`);
-    const uploadTask = uploadBytesResumable(fileRef, file);
+          // Regular upload fallback
+          const fileRef = storageRef(storage, `uploads/${file.name}`);
+          const uploadTask = uploadBytesResumable(fileRef, file);
 
-    uploadTask.on(
-      "state_changed",
-      (snapshot) => {
-        setProgress(
-          Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
-        );
-      },
-      (error) => console.error("❌ Upload Error:", error),
-      () => {
-        getDownloadURL(uploadTask.snapshot.ref).then((downloadURL) => {
-          setUrl(downloadURL);
-          console.log("✅ Uploaded file URL:", downloadURL);
-        });
+          uploadTask.on(
+            "state_changed",
+            (snapshot) => {
+              setProgress(
+                Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+              );
+            },
+            (error) => console.error("❌ Upload Error:", error),
+            async () => {
+              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+              setUrl(downloadURL);
+              // Save file info to Firestore
+              await addDoc(collection(db, "sharedFiles"), {
+                recipientEmail: recipient,
+                fileUrl: downloadURL,
+                fileName: file.name,
+                encrypted: false,
+                createdAt: serverTimestamp(),
+              });
+              console.log("✅ Uploaded file URL:", downloadURL);
+            }
+          );
+        }
+      } catch (err) {
+        console.error('Upload/encrypt error', err);
       }
-    );
+    };
+
+    doUpload();
   };
 
   // 🔹 Send file email
@@ -166,6 +266,16 @@ export default function UploadPage() {
             >
               Upload
             </button>
+            <div className="mt-3">
+              <input
+                type="password"
+                placeholder="Optional passphrase to encrypt file"
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+                className="w-full border p-2 rounded"
+              />
+              <p className="text-xs text-gray-500 mt-1">If provided, the file will be encrypted client-side using a key derived from this passphrase.</p>
+            </div>
             {scanning && (
               <p className="ml-2 inline-block text-purple-600 text-sm">🔍 Scanning for viruses...</p>
             )}

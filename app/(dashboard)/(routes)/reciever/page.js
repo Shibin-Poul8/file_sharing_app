@@ -3,25 +3,25 @@ import { useEffect, useState } from "react";
 import { db, auth } from "../../../firebase/config";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, getDocs, orderBy, query } from "firebase/firestore";
+import { useRouter } from "next/navigation";
+import { deriveKeyPBKDF2, decryptArrayBufferWithAesGcm, base64ToArrayBuffer, deriveSharedAesKeyFromECDH } from "../../../_utils/cryptoClient";
 
 export default function ReceiverPage() {
   const [files, setFiles] = useState([]);
   const [fileLoading, setFileLoading] = useState(true);
   const [user, setUser] = useState(null);
+  const [passphrases, setPassphrases] = useState({});
+  const [decryptingIdx, setDecryptingIdx] = useState(null);
+  const router = useRouter();
 
   useEffect(() => {
-<<<<<<< HEAD
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-    });
-=======
-    onAuthStateChanged(auth, async (user) => {
-      // User NOT logged in → redirect to login
-      if (!user) {
-        router.push("/signin?redirect=/receiver");
+      if (!currentUser) {
+        router.push("/signin?redirect=/reciever");
         return;
       }
->>>>>>> 8e70d708b99b19476cffb1b6e918ae9957ea14eb
+      setUser(currentUser);
+    });
 
     return () => unsubscribe();
   }, []);
@@ -102,14 +102,79 @@ export default function ReceiverPage() {
                     </p>
                   </div>
                 </div>
-                <a
-                  href={file.fileUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition inline-block text-center"
-                >
-                  ⬇️ Download
-                </a>
+                {file.encrypted ? (
+                  <div className="space-y-2">
+                    <input
+                      type="password"
+                      placeholder="Enter passphrase to decrypt"
+                      value={passphrases[index] || ""}
+                      onChange={(e) =>
+                        setPassphrases((p) => ({ ...p, [index]: e.target.value }))
+                      }
+                      className="w-full border p-2 rounded mb-2"
+                    />
+                    <button
+                      onClick={async () => {
+                        try {
+                          setDecryptingIdx(index);
+                          // Two supported encrypted types:
+                          // 1) passphrase-based: file.salt + file.iv
+                          // 2) ECDH-based: file.ephemeralPublicKey + file.iv
+                          let aesKey;
+                          if (file.ephemeralPublicKey) {
+                            // ECDH flow: load recipient private JWK from localStorage
+                            const storageKey = `ecdh_private_${user.uid}`;
+                            const privJson = localStorage.getItem(storageKey);
+                            if (!privJson) {
+                              throw new Error('Private key not found in this browser. Uploading user must have used ECDH; you need your private key to decrypt.');
+                            }
+                            const privJwk = JSON.parse(privJson);
+                            aesKey = await deriveSharedAesKeyFromECDH(privJwk, file.ephemeralPublicKey);
+                          } else {
+                            const pass = passphrases[index];
+                            if (!pass) throw new Error('Please enter the passphrase');
+                            const { key } = await deriveKeyPBKDF2(pass, file.salt);
+                            aesKey = key;
+                          }
+
+                          // fetch encrypted file
+                          const resp = await fetch(file.fileUrl);
+                          const cipherBuf = await resp.arrayBuffer();
+                          // decrypt
+                          const plain = await decryptArrayBufferWithAesGcm(aesKey, cipherBuf, file.iv);
+                          // create blob and download
+                          const blob = new Blob([plain]);
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = file.fileName || 'download.bin';
+                          document.body.appendChild(a);
+                          a.click();
+                          a.remove();
+                          URL.revokeObjectURL(url);
+                        } catch (err) {
+                          console.error('Decrypt failed', err);
+                          alert('Decryption failed: ' + (err.message || err));
+                        } finally {
+                          setDecryptingIdx(null);
+                        }
+                      }}
+                      disabled={decryptingIdx === index}
+                      className="w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
+                    >
+                      {decryptingIdx === index ? 'Decrypting...' : 'Decrypt & Download'}
+                    </button>
+                  </div>
+                ) : (
+                  <a
+                    href={file.fileUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition inline-block text-center"
+                  >
+                    ⬇️ Download
+                  </a>
+                )}
               </div>
             ))}
           </div>

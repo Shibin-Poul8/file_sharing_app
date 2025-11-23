@@ -4,6 +4,7 @@ import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, Gi
 import { auth, db } from "../../../firebase/config";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { useRouter } from "next/navigation";
+import { generateECDHKeyPair } from "../../../_utils/cryptoClient";
 
 export default function SignUpPage() {
   const [name, setName] = useState("");
@@ -48,16 +49,38 @@ export default function SignUpPage() {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // Create a simple profile document in Firestore at users/{uid}
-      const userRef = doc(db, "users", user.uid);
-      await setDoc(userRef, {
-        name: name || "",
-        email: user.email || email,
-        phone: phone || "",
-        organization: organization || "",
-        createdAt: serverTimestamp(),
-      });
+      // Generate ECDH key pair for user and persist public key in Firestore.
+      // Private JWK is stored locally in browser (localStorage). This is a lightweight approach — for production consider better key backup.
+      try {
+        const { publicKey, privateJwk } = await generateECDHKeyPair();
+        // save private locally
+        try {
+          localStorage.setItem(`ecdh_private_${user.uid}`, JSON.stringify(privateJwk));
+        } catch (e) {
+          console.warn('Could not save private key to localStorage', e);
+        }
+        // include publicKey in profile
+        await setDoc(userRef, {
+          name: name || "",
+          email: user.email || email,
+          phone: phone || "",
+          organization: organization || "",
+          publicKey: publicKey,
+          createdAt: serverTimestamp(),
+        });
+      } catch (e) {
+        console.error('Failed to generate/store ECDH keypair', e);
+        // fallback to creating profile without publicKey
+        await setDoc(userRef, {
+          name: name || "",
+          email: user.email || email,
+          phone: phone || "",
+          organization: organization || "",
+          createdAt: serverTimestamp(),
+        });
+      }
 
+      // Create a simple profile document in Firestore at users/{uid}
       // After creating profile, navigate to sign-in (or dashboard if you prefer)
       router.push("/signin");
     } catch (err) {
@@ -78,12 +101,23 @@ export default function SignUpPage() {
   const ensureUserProfile = async (user) => {
     try {
       const userRef = doc(db, "users", user.uid);
+      // If user already has a publicKey in their profile, keep it. Otherwise generate and persist.
+      const publicKeyData = { publicKey: null };
+      try {
+        const { publicKey, privateJwk } = await generateECDHKeyPair();
+        publicKeyData.publicKey = publicKey;
+        try { localStorage.setItem(`ecdh_private_${user.uid}`, JSON.stringify(privateJwk)); } catch (e) { console.warn('Could not store private key locally', e); }
+      } catch (e) {
+        console.warn('Could not generate ECDH keypair for social sign-in', e);
+      }
+
       await setDoc(userRef, {
         name: user.displayName || name || "",
         email: user.email || email || "",
         phone: phone || "",
         organization: organization || "",
         avatarUrl: user.photoURL || null,
+        ...publicKeyData,
         createdAt: serverTimestamp(),
       }, { merge: true });
     } catch (e) {

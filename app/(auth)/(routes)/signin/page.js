@@ -1,33 +1,23 @@
 "use client";
 import React, { useState } from "react";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth, db } from "../../../firebase/config";
-import { doc, setDoc } from "firebase/firestore";
-import { useRouter } from "next/navigation";
+import { auth } from "../../../firebase/config";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export default function SignInPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const router = useRouter();
-<<<<<<< HEAD
-=======
   const searchParams = useSearchParams();
 
-  const redirectTo = searchParams.get("redirect") || "/Upload";
->>>>>>> 8e70d708b99b19476cffb1b6e918ae9957ea14eb
+  const redirectTo = (searchParams && searchParams.get("redirect")) || "/Upload";
 
   const handleSignIn = async (e) => {
     e.preventDefault();
     try {
       await signInWithEmailAndPassword(auth, email, password);
-<<<<<<< HEAD
-      router.push("/Upload");
-=======
-
       router.push(redirectTo);
-
->>>>>>> 8e70d708b99b19476cffb1b6e918ae9957ea14eb
     } catch (err) {
       setError(err.message);
       console.error(err);
