@@ -7,8 +7,22 @@ import { auth, db } from "../firebase/config";
 import { doc, getDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 
-const DEFAULT_AVATAR =
-  "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='80' height='80'><rect fill='%23E5E7EB' width='100%' height='100%'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-size='28' fill='%239CA3AF'>U</text></svg>";
+/* ---------------------------------------------
+   Dynamic Avatar Generator (initial-based SVG)
+----------------------------------------------*/
+function generateAvatar(letter) {
+  const svg = `
+    <svg xmlns='http://www.w3.org/2000/svg' width='80' height='80'>
+      <rect fill='%23E5E7EB' width='100%' height='100%'/>
+      <text x='50%' y='50%' dominant-baseline='middle'
+            text-anchor='middle' font-size='32' 
+            fill='%239CA3AF' font-family='Arial, sans-serif'>
+        ${letter}
+      </text>
+    </svg>
+  `;
+  return "data:image/svg+xml;utf8," + encodeURIComponent(svg);
+}
 
 export default function Header() {
   const [userData, setUserData] = useState({
@@ -17,7 +31,6 @@ export default function Header() {
     name: null,
     email: null,
     phone: null,
-    org: null,
     createdAt: null,
   });
 
@@ -25,9 +38,9 @@ export default function Header() {
   const menuRef = useRef(null);
   const router = useRouter();
 
-  // ────────────────────────────────────────────────
-  // Load User Data
-  // ────────────────────────────────────────────────
+  /* ---------------------------------------------
+     Load User Data & Firestore Profile
+  ----------------------------------------------*/
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (!u) {
@@ -37,7 +50,6 @@ export default function Header() {
           name: null,
           email: null,
           phone: null,
-          org: null,
           createdAt: null,
         });
         return;
@@ -47,30 +59,30 @@ export default function Header() {
         const ref = doc(db, "users", u.uid);
         const snap = await getDoc(ref);
 
+        let name = u.displayName || u.email?.split("@")[0] || "User";
+        let email = u.email;
+        let phone = "—";
+        let createdAt = null;
+
         if (snap.exists()) {
           const data = snap.data();
-
-          setUserData({
-            user: u,
-            avatarUrl: data?.avatarUrl || u.photoURL || null,
-            name: data?.name || u.displayName || "User",
-            email: data?.email || u.email,
-            phone: data?.phone || "—",
-            org: data?.organization || "—",
-            createdAt: data?.createdAt || null,
-          });
-        } else {
-          // If no Firestore profile exists
-          setUserData({
-            user: u,
-            avatarUrl: u.photoURL || null,
-            name: u.displayName || "User",
-            email: u.email,
-            phone: "—",
-            org: "—",
-            createdAt: null,
-          });
+          name = data?.name || name;
+          email = data?.email || email;
+          phone = data?.phone || "—";
+          createdAt = data?.createdAt || null;
         }
+
+        const initial = (name?.[0] || email?.[0] || "U").toUpperCase();
+        const avatar = generateAvatar(initial);
+
+        setUserData({
+          user: u,
+          avatarUrl: u.photoURL || avatar,
+          name,
+          email,
+          phone,
+          createdAt,
+        });
       } catch (err) {
         console.error("Failed to load user data:", err);
       }
@@ -79,9 +91,9 @@ export default function Header() {
     return () => unsub();
   }, []);
 
-  // ────────────────────────────────────────────────
-  // Logout
-  // ────────────────────────────────────────────────
+  /* ---------------------------------------------
+     Logout
+  ----------------------------------------------*/
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -92,9 +104,9 @@ export default function Header() {
     }
   };
 
-  // ────────────────────────────────────────────────
-  // Close menu on document click
-  // ────────────────────────────────────────────────
+  /* ---------------------------------------------
+     Close Menu on Outside Click
+  ----------------------------------------------*/
   useEffect(() => {
     const handleClick = (e) => {
       if (menuOpen && menuRef.current && !menuRef.current.contains(e.target))
@@ -104,9 +116,9 @@ export default function Header() {
     return () => document.removeEventListener("click", handleClick);
   }, [menuOpen]);
 
-  // ────────────────────────────────────────────────
-  // Format Timestamp
-  // ────────────────────────────────────────────────
+  /* ---------------------------------------------
+     Format Timestamp
+  ----------------------------------------------*/
   const formatTimestamp = (ts) => {
     if (!ts) return "Unknown";
     try {
@@ -118,12 +130,12 @@ export default function Header() {
     }
   };
 
-  const { user, avatarUrl, name, email, phone, org, createdAt } = userData;
+  const { user, avatarUrl, name, email, phone, createdAt } = userData;
 
   return (
     <header className="bg-white shadow-md sticky top-0 z-50">
       <div className="mx-auto flex h-16 max-w-screen-xl items-center justify-between px-4 sm:px-6 lg:px-8">
-
+        
         {/* Logo */}
         <div className="flex items-center gap-2">
           <Image src="/logo.svg" alt="Logo" width={36} height={40} />
@@ -162,7 +174,7 @@ export default function Header() {
             <div className="relative" ref={menuRef}>
               <button onClick={() => setMenuOpen(!menuOpen)}>
                 <img
-                  src={avatarUrl || DEFAULT_AVATAR}
+                  src={avatarUrl}
                   alt="Profile"
                   className="w-8 h-8 rounded-full object-cover border"
                 />
@@ -179,10 +191,6 @@ export default function Header() {
                     <div>
                       <span className="text-xs text-gray-500">Phone: </span>
                       {phone}
-                    </div>
-                    <div>
-                      <span className="text-xs text-gray-500">Organization: </span>
-                      {org}
                     </div>
                     <div>
                       <span className="text-xs text-gray-500">Joined: </span>

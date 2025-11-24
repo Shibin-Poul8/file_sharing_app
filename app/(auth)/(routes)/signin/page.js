@@ -42,7 +42,7 @@ export default function SignInPage() {
         <input
           type="email"
           placeholder="Email"
-          className="w-full border p-3 rounded mb-4 text-gray-500"
+          className="w-full border p-3 rounded mb-4 text-gray-800"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
@@ -51,7 +51,7 @@ export default function SignInPage() {
         <input
           type="password"
           placeholder="Password"
-          className="w-full border p-3 rounded mb-4 text-gray-500"
+          className="w-full border p-3 rounded mb-4 text-gray-800"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
@@ -64,7 +64,7 @@ export default function SignInPage() {
           Login
         </button>
 
-        <p className="text-sm text-center mt-4">
+        <p className="text-sm text-center mt-4 text-gray-600">
           Don’t have an account?{" "}
           <a href="/signup" className="text-blue-500 hover:underline">
             Sign up
