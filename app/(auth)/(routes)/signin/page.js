@@ -12,17 +12,15 @@ export default function SignInPage() {
   const searchParams = useSearchParams();
 
   // get redirect path or fallback
-  const redirectTo = searchParams.get("redirect") || "/Upload";
+  const redirectTo = (searchParams && searchParams.get("redirect")) || "/Upload";
 
   const handleSignIn = async (e) => {
     e.preventDefault();
 
     try {
       await signInWithEmailAndPassword(auth, email, password);
-
       // Redirect after login
       router.push(redirectTo);
-
     } catch (err) {
       setError(err.message);
       console.error(err);
