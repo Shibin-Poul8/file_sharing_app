@@ -3,8 +3,9 @@ import React, { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { auth, db } from "../firebase/config";
-import { doc, getDoc } from "firebase/firestore";
+import { auth, db, storage } from "../firebase/config";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { ref as storageRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { useRouter } from "next/navigation";
 
 /* ---------------------------------------------
@@ -35,7 +36,9 @@ export default function Header() {
   });
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const menuRef = useRef(null);
+  const fileInputRef = useRef(null);
   const router = useRouter();
 
   /* ---------------------------------------------
@@ -73,7 +76,9 @@ export default function Header() {
         }
 
         const initial = (name?.[0] || email?.[0] || "U").toUpperCase();
-        const avatar = generateAvatar(initial);
+        const avatar = snap.exists() && snap.data()?.avatarUrl 
+          ? snap.data().avatarUrl 
+          : (u.photoURL || generateAvatar(initial));
 
         setUserData({
           user: u,
@@ -101,6 +106,57 @@ export default function Header() {
       setMenuOpen(false);
     } catch (err) {
       console.error("Logout failed:", err);
+    }
+  };
+
+  /* ---------------------------------------------
+     Upload Avatar Photo
+  ----------------------------------------------*/
+  const handleAvatarUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    setUploading(true);
+    try {
+      const fileRef = storageRef(storage, `avatars/${user.uid}/${file.name}`);
+      const uploadTask = uploadBytesResumable(fileRef, file);
+
+      uploadTask.on(
+        "state_changed",
+        () => {
+          // track progress if needed
+        },
+        (error) => {
+          console.error("Avatar upload error:", error);
+          alert("Photo upload failed: " + error.message);
+          setUploading(false);
+        },
+        async () => {
+          try {
+            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+            // Update user profile with new avatar
+            await updateDoc(doc(db, "users", user.uid), {
+              avatarUrl: downloadURL,
+            });
+            // Update local state
+            setUserData((prev) => ({
+              ...prev,
+              avatarUrl: downloadURL,
+            }));
+            alert("Profile photo updated!");
+          } catch (err) {
+            console.error("Failed to save avatar URL:", err);
+            alert("Failed to save photo");
+          } finally {
+            setUploading(false);
+            if (fileInputRef.current) fileInputRef.current.value = "";
+          }
+        }
+      );
+    } catch (err) {
+      console.error("Avatar upload error:", err);
+      alert("Photo upload failed");
+      setUploading(false);
     }
   };
 
@@ -196,6 +252,23 @@ export default function Header() {
                       <span className="text-xs text-gray-500">Joined: </span>
                       {formatTimestamp(createdAt)}
                     </div>
+                  </div>
+
+                  <div className="p-3 border-t space-y-2">
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading}
+                      className="w-full px-3 py-2 text-left rounded hover:bg-blue-50 text-sm text-blue-600 border border-blue-600 transition"
+                    >
+                      {uploading ? "Uploading..." : "📷 Change Profile Photo"}
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarUpload}
+                      className="hidden"
+                    />
                   </div>
 
                   <div className="p-2 border-t">
