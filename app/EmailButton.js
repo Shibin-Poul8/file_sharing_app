@@ -4,7 +4,7 @@ export default function EmailButton() {
   const sendEmail = async () => {
     const res = await fetch('/api/send', { method: 'POST' });
     const data = await res.json();
-    alert(data.success ? '✅ Email sent!' : '❌ Failed to send');
+    alert(data.success ? 'Email sent!' : 'Failed to send');
   };
 
   return (
