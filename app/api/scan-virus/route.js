@@ -45,7 +45,7 @@ async function scanFileWithVirusTotal(fileBuffer, fileName) {
     // Poll for analysis results (with timeout)
     let analysisResult = null;
     let attempts = 0;
-    const maxAttempts = 30; // 30 seconds max wait
+    const maxAttempts = 180; // 2 minutes max wait
 
     while (attempts < maxAttempts) {
       const analysisResponse = await fetch(
