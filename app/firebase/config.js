@@ -4,6 +4,10 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
+// 🔥 IMPORTANT — Only ONE Admin User (Enter your UID)
+export const ADMIN_UID = "0cXgWlwFLpa6U8JuxrAKInvbqpi2"; 
+// ^ this is YOUR UID, keep it permanent
+
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
