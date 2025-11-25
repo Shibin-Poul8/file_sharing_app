@@ -20,8 +20,7 @@ export default function UploadPage() {
   const [manualRecipientPub, setManualRecipientPub] = useState("");
   const [sendStatus, setSendStatus] = useState("");
   const [isDragging, setIsDragging] = useState(false);
-  const [scanning, setScanning] = useState(false);
-  const [scanResult, setScanResult] = useState(null);
+  // Virus scanning moved to receiver side; no scan state needed here
   const inputRef = useRef();
 
   // Redirect unauthenticated users to signin
@@ -35,53 +34,18 @@ export default function UploadPage() {
     return () => unsub();
   }, []);
 
-  // 🔹 Scan file for viruses (auto-triggered)
-  const handleScanVirus = async (fileToScan) => {
-    setScanning(true);
-    setScanResult(null);
-
-    try {
-      const formData = new FormData();
-      formData.append("file", fileToScan);
-
-      const res = await fetch("/api/scan-virus", {
-        method: "POST",
-        body: formData,
-      });
-
-      const data = await res.json();
-
-      if (data.success) {
-        setScanResult(data.data);
-      } else {
-        console.error("Scan error:", data.error);
-        setScanResult(null);
-      }
-    } catch (err) {
-      console.error("Scan error:", err);
-      setScanResult(null);
-    } finally {
-      setScanning(false);
-    }
-  };
+  // Upload page no longer scans files; scanning happens on the recipient side before download.
 
   // 🔹 Handle file selection and auto-scan
   const handleFileSelect = (selectedFile) => {
     setFile(selectedFile);
-    setScanResult(null);
-    if (selectedFile) {
-      handleScanVirus(selectedFile);
-    }
   };
 
   // 🔹 Upload to Firebase Storage
   const handleUpload = () => {
     if (!file) return alert("Please select a file first!");
     
-    // Prevent upload if malware detected
-    if (scanResult && !scanResult.safe) {
-      return alert("⚠️ Malware detected! Cannot upload this file.");
-    }
+    // Upload is allowed; files will be scanned when the recipient downloads them.
     // ECDH-focused upload: try ECDH encryption for recipient, otherwise fallback to plain upload
     const doUpload = async () => {
       try {
@@ -231,32 +195,11 @@ export default function UploadPage() {
               Upload
             </button>
             
-            {scanning && (
-              <p className="ml-2 inline-block text-purple-600 text-sm">🔍 Scanning for viruses...</p>
-            )}
+            {/* Virus scanning moved to receiver; upload UI no longer shows scanning state */}
             {progress > 0 && (
               <p className="mt-3 text-gray-700 text-sm">Progress: {progress}%</p>
             )}
-            {scanResult && (
-              <div
-                className={`mt-4 p-4 rounded-md text-sm ${
-                  scanResult.safe
-                    ? "bg-green-50 border border-green-300"
-                    : "bg-red-50 border border-red-300"
-                }`}
-              >
-                <p
-                  className={`font-semibold ${
-                    scanResult.safe ? "text-green-700" : "text-red-700"
-                  }`}
-                >
-                  {scanResult.safe
-                    ? "✅ File is Safe"
-                    : "⚠️ Malware Detected"}
-                </p>
-                
-              </div>
-            )}
+            {/* Scanning results are shown on the receiver page during download */}
             {url && (
               <p className="mt-3 text-green-600 text-sm break-all">
                 File uploaded successfully!
@@ -274,13 +217,7 @@ export default function UploadPage() {
               placeholder="Recipient email"
               value={recipient}
               onChange={(e) => setRecipient(e.target.value)}
-              className="w-full border p-2 rounded mb-3"
-            />
-            <textarea
-              placeholder="Optional: paste recipient public key here to encrypt for them"
-              value={manualRecipientPub}
-              onChange={(e) => setManualRecipientPub(e.target.value)}
-              className="w-full border p-2 rounded mb-3 h-24 text-xs font-mono"
+              className="w-full border p-2 rounded mb-3 text-gray-800"
             />
             <button
               onClick={handleSend}

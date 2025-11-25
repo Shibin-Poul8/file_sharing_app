@@ -3,208 +3,207 @@ import { useEffect, useState } from "react";
 import { db, auth } from "../../../firebase/config";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { decryptWithPrivateJwkAndEphemeral } from "../../../_utils/cryptoClient";
 
 export default function ReceiverPage() {
   const [files, setFiles] = useState([]);
-  const [fileLoading, setFileLoading] = useState(true);
-  const [fetchError, setFetchError] = useState(null);
   const [user, setUser] = useState(null);
-  const [decryptingIdx, setDecryptingIdx] = useState(null);
-  const router = useRouter();
+  const [loadingFile, setLoadingFile] = useState(null); // index of file being processed
+  const [statusMessage, setStatusMessage] = useState(null);
 
-  useEffect(() => {
-    const fetchFiles = async (currentUser) => {
-      setFetchError(null);
-      setFileLoading(true);
-      try {
-        const q = query(
-          collection(db, "sharedFiles"),
-          where("recipientEmail", "==", currentUser.email),
-          orderBy("createdAt", "desc")
-        );
+  // Virus scan helper
+  async function runVirusTotalScan(blob, fileName) {
+    const formData = new FormData();
+    formData.append("file", new File([blob], fileName));
 
-        const snapshot = await getDocs(q);
-        const fileList = snapshot.docs.map((doc) => doc.data());
-        setFiles(fileList);
-      } catch (err) {
-        console.error("Error fetching files:", err);
-        setFetchError(err.message || String(err));
-      } finally {
-        setFileLoading(false);
-      }
-    };
-
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      if (!currentUser) {
-        setUser(null);
-        setFileLoading(false);
-        return;
-      }
-      setUser(currentUser);
-      // load files for current user
-      fetchFiles(currentUser);
+    const res = await fetch("/api/scan-virus", {
+      method: "POST",
+      body: formData,
     });
 
-    // safety timeout: if nothing happens in 10s, stop loading and show a message
-    const safety = setTimeout(() => {
-      setFileLoading(false);
-      if (!user) setFetchError('Still waiting for authentication or network — try refreshing.');
-    }, 10000);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "Virus scan failed");
 
-    return () => {
-      clearTimeout(safety);
-      unsubscribe();
-    };
+    return data.data; // {safe, malicious, suspicious}
+  }
+
+  // Load user and file list
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (currentUser) => {
+      if (!currentUser) {
+        setUser(null);
+        return;
+      }
+
+      setUser(currentUser);
+
+      const q = query(
+        collection(db, "sharedFiles"),
+        where("recipientEmail", "==", currentUser.email),
+        orderBy("createdAt", "desc")
+      );
+
+      const snapshot = await getDocs(q);
+      setFiles(snapshot.docs.map((d) => d.data()));
+    });
+
+    return () => unsub();
   }, []);
 
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center max-w-md">
-          <div className="text-6xl mb-4">🔐</div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Access Your Shared Files</h2>
-          <p className="text-gray-600 mb-6">You need to sign in to view files shared with you.</p>
-          <Link
-            href="/signin?redirect=/reciever"
-            className="inline-block px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition"
-          >
+          <h2 className="text-2xl font-bold mb-2">Sign in to view received files</h2>
+          <Link href="/signin?redirect=/reciever" className="px-4 py-2 bg-blue-600 text-white rounded">
             Sign In
           </Link>
-          <p className="text-sm text-gray-500 mt-4">Don't have an account? <Link href="/signup" className="text-blue-600 hover:underline">Sign up here</Link></p>
         </div>
       </div>
     );
   }
 
-  if (fileLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading your files...</p>
-          {fetchError && <p className="text-sm text-red-500 mt-2">{fetchError}</p>}
-          {user && (
-            <button
-              onClick={async () => {
-                setFileLoading(true);
-                setFetchError(null);
-                try {
-                  const q = query(
-                    collection(db, "sharedFiles"),
-                    where("recipientEmail", "==", user.email),
-                    orderBy("createdAt", "desc")
-                  );
-                  const snapshot = await getDocs(q);
-                  setFiles(snapshot.docs.map((d) => d.data()));
-                } catch (err) {
-                  console.error('Retry fetch failed', err);
-                  setFetchError(err.message || String(err));
-                } finally {
-                  setFileLoading(false);
-                }
-              }}
-              className="mt-3 px-3 py-2 bg-blue-600 text-white rounded"
-            >
-              Retry
-            </button>
-          )}
-        </div>
-      </div>
-    );
+  // -------------------------------
+  // 🔥 ENCRYPTED FILE HANDLER
+  // -------------------------------
+  async function handleEncryptedFile(file, index) {
+    try {
+      setLoadingFile(index);
+
+      // Load private key
+      const keyJson = localStorage.getItem(`ecdh_private_${user.uid}`);
+      if (!keyJson) throw new Error("Private key missing. Cannot decrypt.");
+      const privJwk = JSON.parse(keyJson);
+
+      // Fetch encrypted bytes
+      const resp = await fetch(file.fileUrl);
+      if (!resp.ok) throw new Error(`Failed to download encrypted file.`);
+      const cipherBuf = await resp.arrayBuffer();
+
+      // 🔥 Decrypt FIRST (virus scanners can't scan encrypted data)
+      const plain = await decryptWithPrivateJwkAndEphemeral(
+        privJwk,
+        file.ephemeralPublicKey,
+        cipherBuf,
+        file.iv
+      );
+
+      const decryptedBlob = new Blob([plain]);
+
+      // 🔥 Now scan decrypted bytes — FAST
+      const scan = await runVirusTotalScan(decryptedBlob, file.fileName);
+
+      if (!scan.safe) {
+        alert("⚠️ Malware detected! File blocked.");
+        setStatusMessage({ type: "error", text: "Virus detected — download blocked." });
+        return;
+      }
+
+      // Download
+      const url = URL.createObjectURL(decryptedBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = file.fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setStatusMessage({ type: "success", text: "File safe — downloaded successfully." });
+    } catch (err) {
+      console.error(err);
+      alert("Decrypt/Download failed: " + err.message);
+      setStatusMessage({ type: "error", text: "Decryption failed." });
+    } finally {
+      setLoadingFile(null);
+      setTimeout(() => setStatusMessage(null), 5000);
+    }
+  }
+
+  // -------------------------------
+  // 🔥 NON-ENCRYPTED FILE HANDLER
+  // -------------------------------
+  async function handlePlainFile(file, index) {
+    try {
+      setLoadingFile(index);
+
+      const resp = await fetch(file.fileUrl);
+      if (!resp.ok) throw new Error("Download failed");
+      const buf = await resp.arrayBuffer();
+      const blob = new Blob([buf]);
+
+      // Scan BEFORE allowing download
+      const scan = await runVirusTotalScan(blob, file.fileName);
+
+      if (!scan.safe) {
+        alert("⚠️ Malware detected! File blocked.");
+        setStatusMessage({ type: "error", text: "Virus detected — download blocked." });
+        return;
+      }
+
+      // Safe → Download
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = file.fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setStatusMessage({ type: "success", text: "File safe — downloaded." });
+    } catch (err) {
+      console.error(err);
+      alert("Error: " + err.message);
+      setStatusMessage({ type: "error", text: "Download failed." });
+    } finally {
+      setLoadingFile(null);
+      setTimeout(() => setStatusMessage(null), 5000);
+    }
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-12">
-      <div className="bg-white rounded-xl shadow-md p-8">
-        <h2 className="text-3xl font-bold text-blue-600 mb-2">📁 Your Shared Files</h2>
-        <p className="text-gray-600 mb-6">Files that have been shared with you</p>
+    <div className="max-w-3xl mx-auto py-10 px-4">
+      <h2 className="text-3xl font-bold text-blue-600 mb-4">📁 Files Shared With You</h2>
 
-        {files.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="text-6xl mb-4">📭</div>
-            <p className="text-gray-600 text-lg">No files shared with your account.</p>
-            <p className="text-gray-500 text-sm mt-2">Ask others to share files with you using your email address.</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {files.map((file, index) => (
-              <div
-                key={index}
-                className="border border-gray-200 p-4 rounded-lg hover:shadow-md transition"
+      {statusMessage && (
+        <p
+          className={`p-3 rounded mb-4 ${
+            statusMessage.type === "success"
+              ? "bg-green-100 text-green-700"
+              : "bg-red-100 text-red-700"
+          }`}
+        >
+          {statusMessage.text}
+        </p>
+      )}
+
+      {files.length === 0 && (
+        <p className="text-gray-600 text-center py-10">No files shared with your email.</p>
+      )}
+
+      <div className="grid grid-cols-1 gap-4">
+        {files.map((file, index) => (
+          <div key={index} className="border p-4 rounded shadow-sm">
+            <p className="font-semibold">{file.fileName}</p>
+            <p className="text-xs text-gray-500">{file.createdAt?.seconds ? new Date(file.createdAt.seconds * 1000).toLocaleString() : "Unknown"}</p>
+
+            {file.encrypted ? (
+              <button
+                onClick={() => handleEncryptedFile(file, index)}
+                disabled={loadingFile === index}
+                className="mt-3 w-full bg-blue-600 text-white py-2 rounded"
               >
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex-1">
-                    <p className="font-semibold text-gray-900 break-all">📄 {file.fileName}</p>
-                    <p className="text-xs text-gray-500 mt-1">Shared on: {file.createdAt?.seconds ? new Date(file.createdAt.seconds * 1000).toLocaleDateString() : "Unknown"}</p>
-                  </div>
-                </div>
-
-                {file.encrypted ? (
-                  <div className="space-y-2">
-                    {!file.ephemeralPublicKey ? (
-                      <div className="space-y-2">
-                        <p className="text-sm text-yellow-700">Encrypted with an unsupported (legacy) method — only ECDH-encrypted files are supported here.</p>
-                        <button
-                          disabled
-                          className="w-full bg-gray-400 text-white px-4 py-2 rounded"
-                        >
-                          Unsupported
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={async () => {
-                          try {
-                            setDecryptingIdx(index);
-                            const storageKey = `ecdh_private_${user.uid}`;
-                            const privJson = localStorage.getItem(storageKey);
-                            if (!privJson) throw new Error('Private key not found in this browser. You need the private key to decrypt ECDH-encrypted files.');
-                            const privJwk = JSON.parse(privJson);
-                            // Use convenience wrapper to derive shared key and decrypt
-                            console.log('Fetching encrypted file from:', file.fileUrl);
-                            const resp = await fetch(file.fileUrl);
-                            if (!resp.ok) {
-                              const errText = await resp.text();
-                              console.error(`Fetch failed: ${resp.status} ${resp.statusText}`, errText);
-                              throw new Error(`Failed to download file: ${resp.status} ${resp.statusText}. Check Storage permissions.`);
-                            }
-                            const cipherBuf = await resp.arrayBuffer();
-                            console.log('Decrypting file...');
-                            const plain = await decryptWithPrivateJwkAndEphemeral(privJwk, file.ephemeralPublicKey, cipherBuf, file.iv);
-                            const blob = new Blob([plain]);
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = file.fileName || 'download.bin';
-                            document.body.appendChild(a);
-                            a.click();
-                            a.remove();
-                            URL.revokeObjectURL(url);
-                            console.log('File downloaded successfully');
-                          } catch (err) {
-                            console.error('Decrypt failed', err);
-                            alert('Decryption failed: ' + (err.message || err));
-                          } finally {
-                            setDecryptingIdx(null);
-                          }
-                        }}
-                        disabled={decryptingIdx === index}
-                        className="w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
-                      >
-                        {decryptingIdx === index ? 'Decrypting...' : 'Decrypt & Download'}
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <a href={file.fileUrl} target="_blank" rel="noreferrer" className="w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition inline-block text-center mt-3">⬇️ Download</a>
-                )}
-              </div>
-            ))}
+                {loadingFile === index ? "Decrypting…" : "Decrypt & Download"}
+              </button>
+            ) : (
+              <button
+                onClick={() => handlePlainFile(file, index)}
+                disabled={loadingFile === index}
+                className="mt-3 w-full bg-blue-600 text-white py-2 rounded"
+              >
+                {loadingFile === index ? "Scanning…" : "Scan + Download"}
+              </button>
+            )}
           </div>
-        )}
+        ))}
       </div>
     </div>
   );
