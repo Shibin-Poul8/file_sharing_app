@@ -9,10 +9,9 @@ import { decryptWithPrivateJwkAndEphemeral } from "../../../_utils/cryptoClient"
 export default function ReceiverPage() {
   const [files, setFiles] = useState([]);
   const [user, setUser] = useState(null);
-  const [loadingFile, setLoadingFile] = useState(null); // index of file being processed
+  const [loadingFile, setLoadingFile] = useState(null);
   const [statusMessage, setStatusMessage] = useState(null);
 
-  // Virus scan helper
   async function runVirusTotalScan(blob, fileName) {
     const formData = new FormData();
     formData.append("file", new File([blob], fileName));
@@ -25,16 +24,12 @@ export default function ReceiverPage() {
     const data = await res.json();
     if (!data.success) throw new Error(data.error || "Virus scan failed");
 
-    return data.data; // {safe, malicious, suspicious}
+    return data.data;
   }
 
-  // Load user and file list
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (currentUser) => {
-      if (!currentUser) {
-        setUser(null);
-        return;
-      }
+      if (!currentUser) return setUser(null);
 
       setUser(currentUser);
 
@@ -45,7 +40,7 @@ export default function ReceiverPage() {
       );
 
       const snapshot = await getDocs(q);
-      setFiles(snapshot.docs.map((d) => d.data()));
+      setFiles(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
 
     return () => unsub();
@@ -64,43 +59,40 @@ export default function ReceiverPage() {
     );
   }
 
-  // -------------------------------
-  // 🔥 ENCRYPTED FILE HANDLER
-  // -------------------------------
+  // ------------------------------------
+  // 🔥 ENCRYPTED FILE LOGIC
+  // ------------------------------------
   async function handleEncryptedFile(file, index) {
     try {
       setLoadingFile(index);
 
-      // Load private key
       const keyJson = localStorage.getItem(`ecdh_private_${user.uid}`);
       if (!keyJson) throw new Error("Private key missing. Cannot decrypt.");
+
       const privJwk = JSON.parse(keyJson);
 
-      // Fetch encrypted bytes
       const resp = await fetch(file.fileUrl);
-      if (!resp.ok) throw new Error(`Failed to download encrypted file.`);
+      if (!resp.ok) throw new Error("Failed to download encrypted file.");
       const cipherBuf = await resp.arrayBuffer();
 
-      // 🔥 Decrypt FIRST (virus scanners can't scan encrypted data)
+      // FIX: ensure iv is base64 string
+      const ivB64 = typeof file.iv === "string" ? file.iv : String(file.iv);
+
       const plain = await decryptWithPrivateJwkAndEphemeral(
         privJwk,
         file.ephemeralPublicKey,
         cipherBuf,
-        file.iv
+        ivB64
       );
 
       const decryptedBlob = new Blob([plain]);
-
-      // 🔥 Now scan decrypted bytes — FAST
       const scan = await runVirusTotalScan(decryptedBlob, file.fileName);
 
       if (!scan.safe) {
-        alert("⚠️ Malware detected! File blocked.");
-        setStatusMessage({ type: "error", text: "Virus detected — download blocked." });
-        return;
+        alert("⚠ Malware detected! File blocked.");
+        return setStatusMessage({ type: "error", text: "Virus detected — download blocked." });
       }
 
-      // Download
       const url = URL.createObjectURL(decryptedBlob);
       const a = document.createElement("a");
       a.href = url;
@@ -108,9 +100,8 @@ export default function ReceiverPage() {
       a.click();
       URL.revokeObjectURL(url);
 
-      setStatusMessage({ type: "success", text: "File safe — downloaded successfully." });
+      setStatusMessage({ type: "success", text: "File safe — downloaded." });
     } catch (err) {
-      console.error(err);
       alert("Decrypt/Download failed: " + err.message);
       setStatusMessage({ type: "error", text: "Decryption failed." });
     } finally {
@@ -119,9 +110,9 @@ export default function ReceiverPage() {
     }
   }
 
-  // -------------------------------
-  // 🔥 NON-ENCRYPTED FILE HANDLER
-  // -------------------------------
+  // ------------------------------------
+  // 🔥 PLAIN FILE LOGIC
+  // ------------------------------------
   async function handlePlainFile(file, index) {
     try {
       setLoadingFile(index);
@@ -129,18 +120,15 @@ export default function ReceiverPage() {
       const resp = await fetch(file.fileUrl);
       if (!resp.ok) throw new Error("Download failed");
       const buf = await resp.arrayBuffer();
-      const blob = new Blob([buf]);
 
-      // Scan BEFORE allowing download
+      const blob = new Blob([buf]);
       const scan = await runVirusTotalScan(blob, file.fileName);
 
       if (!scan.safe) {
-        alert("⚠️ Malware detected! File blocked.");
-        setStatusMessage({ type: "error", text: "Virus detected — download blocked." });
-        return;
+        alert("⚠ Malware detected! File blocked.");
+        return setStatusMessage({ type: "error", text: "Virus detected — download blocked." });
       }
 
-      // Safe → Download
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -150,7 +138,6 @@ export default function ReceiverPage() {
 
       setStatusMessage({ type: "success", text: "File safe — downloaded." });
     } catch (err) {
-      console.error(err);
       alert("Error: " + err.message);
       setStatusMessage({ type: "error", text: "Download failed." });
     } finally {
@@ -164,13 +151,9 @@ export default function ReceiverPage() {
       <h2 className="text-3xl font-bold text-blue-600 mb-4">📁 Files Shared With You</h2>
 
       {statusMessage && (
-        <p
-          className={`p-3 rounded mb-4 ${
-            statusMessage.type === "success"
-              ? "bg-green-100 text-green-700"
-              : "bg-red-100 text-red-700"
-          }`}
-        >
+        <p className={`p-3 rounded mb-4 ${
+          statusMessage.type === "success" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+        }`}>
           {statusMessage.text}
         </p>
       )}
@@ -181,9 +164,13 @@ export default function ReceiverPage() {
 
       <div className="grid grid-cols-1 gap-4">
         {files.map((file, index) => (
-          <div key={index} className="border p-4 rounded shadow-sm">
+          <div key={file.id || index} className="border p-4 rounded shadow-sm">
             <p className="font-semibold">{file.fileName}</p>
-            <p className="text-xs text-gray-500">{file.createdAt?.seconds ? new Date(file.createdAt.seconds * 1000).toLocaleString() : "Unknown"}</p>
+            <p className="text-xs text-gray-500">
+              {file.createdAt?.seconds
+                ? new Date(file.createdAt.seconds * 1000).toLocaleString()
+                : "Unknown"}
+            </p>
 
             {file.encrypted ? (
               <button
