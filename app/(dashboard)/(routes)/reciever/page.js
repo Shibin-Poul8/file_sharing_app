@@ -186,7 +186,7 @@ export default function ReceiverPage() {
                 disabled={loadingFile === index}
                 className="mt-3 w-full bg-blue-600 text-white py-2 rounded"
               >
-                {loadingFile === index ? "Scanning…" : "Scan + Download"}
+                {loadingFile === index ? "Decrypting…" : "Decrypt + Download"}
               </button>
             )}
           </div>
