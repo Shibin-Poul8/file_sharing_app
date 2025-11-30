@@ -77,11 +77,11 @@ export default function SignUpPage() {
       <form onSubmit={handleSignUp} className="bg-white shadow-lg rounded-2xl p-8 w-96">
         <h2 className="text-2xl font-bold mb-6 text-center text-blue-600">Sign Up</h2>
         {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
-        <input type="text" placeholder="Full name" className="w-full border p-3 rounded mb-4" value={name} onChange={(e) => setName(e.target.value)} />
-        <input type="tel" placeholder="Phone number" className="w-full border p-3 rounded mb-4" value={phone} onChange={(e) => setPhone(e.target.value)} />
-        <input type="email" placeholder="Email" className="w-full border p-3 rounded mb-4" value={email} onChange={(e) => setEmail(e.target.value)} />
-        <input type="password" placeholder="Password" className="w-full border p-3 rounded mb-4" value={password} onChange={(e) => setPassword(e.target.value)} />
-        <input type="password" placeholder="Confirm Password" className="w-full border p-3 rounded mb-4" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+        <input type="text" placeholder="Full name" className="w-full border p-3 rounded mb-4 text-gray-700" value={name} onChange={(e) => setName(e.target.value)} />
+        <input type="tel" placeholder="Phone number" className="w-full border p-3 rounded mb-4 text-gray-700" value={phone} onChange={(e) => setPhone(e.target.value)} />
+        <input type="email" placeholder="Email" className="w-full border p-3 rounded mb-4 text-gray-700" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input type="password" placeholder="Password" className="w-full border p-3 rounded mb-4 text-gray-700" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <input type="password" placeholder="Confirm Password" className="w-full border p-3 rounded mb-4 text-gray-700" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
         <button type="submit" disabled={loading} className={`w-full ${loading ? "bg-blue-400" : "bg-blue-600"} text-white py-2 rounded hover:bg-blue-700`}>
           {loading ? "Creating..." : "Create Account"}
         </button>

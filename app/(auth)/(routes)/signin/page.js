@@ -30,8 +30,8 @@ export default function SignInPage() {
       <form onSubmit={handleSignIn} className="bg-white shadow-lg rounded-2xl p-8 w-96">
         <h2 className="text-2xl font-bold mb-6 text-center text-blue-600">Sign In</h2>
         {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
-        <input type="email" placeholder="Email" className="w-full border p-3 rounded mb-4" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <input type="password" placeholder="Password" className="w-full border p-3 rounded mb-4" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <input type="email" placeholder="Email" className="w-full border p-3 rounded mb-4 text-gray-700" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <input type="password" placeholder="Password" className="w-full border p-3 rounded mb-4 text-gray-700" value={password} onChange={(e) => setPassword(e.target.value)} required />
         <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700">Login</button>
         <p className="text-sm text-center mt-4 text-gray-600">Don’t have an account? <a href="/signup" className="text-blue-500 hover:underline">Sign up</a></p>
       </form>

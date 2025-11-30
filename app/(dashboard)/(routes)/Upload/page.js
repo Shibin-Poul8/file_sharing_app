@@ -50,7 +50,7 @@ export default function UploadPage() {
     if (!recipient) return alert("Enter recipient email");
 
     try {
-      console.log("🔐 Encrypting file");
+      console.log("Encrypting file");
 
       // Read selected file
       const buffer = await file.arrayBuffer();
@@ -99,7 +99,7 @@ export default function UploadPage() {
         }
       );
     } catch (err) {
-      console.error("❌ Upload Error:", err);
+      console.error("Upload Error:", err);
       alert("Encryption failed. Upload cancelled.");
     }
   };
@@ -138,9 +138,7 @@ export default function UploadPage() {
     }
   };
 
-  // =======================
-  // UI
-  // =======================
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100 py-12">
       <div className="w-full max-w-4xl px-4">
@@ -150,7 +148,7 @@ export default function UploadPage() {
           {/* Upload section */}
           <div className="bg-white p-6 rounded shadow">
             <h2 className="text-xl font-bold text-blue-600 mb-4">
-              Upload Encrypted File
+              Upload File
             </h2>
 
             <input
@@ -188,11 +186,11 @@ export default function UploadPage() {
               onClick={handleUpload}
               className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 mt-3"
             >
-              Upload Encrypted
+              Upload 
             </button>
 
             {progress > 0 && (
-              <p className="mt-2 text-sm">Progress: {progress}%</p>
+              <p className="mt-2 text-sm text-gray-600">Progress: {progress}%</p>
             )}
 
             {url && (
@@ -213,7 +211,7 @@ export default function UploadPage() {
               placeholder="Recipient email"
               value={recipient}
               onChange={(e) => setRecipient(e.target.value)}
-              className="w-full border p-2 rounded mb-4"
+              className="w-full border p-2 rounded mb-4 text-gray-700"
             />
 
             <button

@@ -32,7 +32,7 @@ export default function ReceiverPage() {
 
   if (!user) {
     return (
-      <div className="min-h-screen grid place-items-center">
+      <div className="min-h-screen grid place-items-center text-gray-600">
         <div>
           <p>Please sign in</p>
           <Link href="/signin?redirect=/reciever" className="text-blue-600">Sign In</Link>
@@ -66,7 +66,7 @@ export default function ReceiverPage() {
       a.remove();
       URL.revokeObjectURL(a.href);
 
-      alert("Decrypted file downloaded ✅");
+      alert("Decrypted file downloaded");
     } catch (e) {
       console.error(e);
       alert("Decryption failed");
@@ -91,11 +91,11 @@ export default function ReceiverPage() {
 
   return (
     <div className="max-w-3xl mx-auto p-6">
-      <h2 className="text-2xl font-bold mb-4">Files shared with you</h2>
+      <h2 className="text-2xl font-bold mb-4 text-gray-600">Files shared with you</h2>
 
       {files.map((f, i) => (
         <div key={f.id} className="border p-4 rounded mb-3">
-          <p className="font-semibold">{f.fileName}</p>
+          <p className="font-semibold text-gray-600">{f.fileName}</p>
 
           {f.encrypted ? (
             <button
@@ -103,7 +103,7 @@ export default function ReceiverPage() {
               onClick={() => decryptAndDownload(f, i)}
               className="mt-2 px-3 py-2 rounded bg-blue-600 text-white"
             >
-              {loading===i ? "Decrypting..." : "Decrypt & Download"}
+              {loading===i ? "Decrypting..." : "Download Decrypted File"}
             </button>
           ) : (
             <button
@@ -111,7 +111,7 @@ export default function ReceiverPage() {
               onClick={() => plainDownload(f, i)}
               className="mt-2 px-3 py-2 rounded bg-gray-600 text-white"
             >
-              Download
+              Download enc File
             </button>
           )}
         </div>
