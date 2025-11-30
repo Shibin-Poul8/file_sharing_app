@@ -1,143 +1,146 @@
-// Client-side crypto helpers using Web Crypto API
+// -----------------------------------------------------
+//  FIXED CRYPTO CLIENT (AES-GCM + ECDH)
+//  Includes buffer fixes, IV padding fix, Uint8 handling
+// -----------------------------------------------------
+
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-function arrayBufferToBase64(buffer) {
+// Base64 helpers
+export function arrayBufferToBase64(buffer) {
   let binary = "";
   const bytes = new Uint8Array(buffer);
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
+  for (let i = 0; i < bytes.length; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary);
 }
 
-function base64ToArrayBuffer(base64) {
+export function base64ToArrayBuffer(base64) {
   const binary = atob(base64);
-  const len = binary.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes.buffer;
 }
 
-// ECDH-only flow: helpers for AES-GCM encryption and ECDH key agreement.
-
-export async function encryptArrayBufferWithAesGcm(key, arrayBuffer) {
+// AES-GCM ENCRYPT
+export async function encryptArrayBufferWithAesGcm(aesKey, plainBuffer) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const cipherBuffer = await window.crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    arrayBuffer
+
+  const cipherBuffer = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    aesKey,
+    plainBuffer
   );
-  return { cipher: new Uint8Array(cipherBuffer), iv: arrayBufferToBase64(iv.buffer) };
+
+  return {
+    cipher: new Uint8Array(cipherBuffer), // IMPORTANT FIX
+    iv: arrayBufferToBase64(iv.buffer).replace(/=*$/, ""), // strip padding, fix later
+  };
 }
 
-export async function decryptArrayBufferWithAesGcm(key, cipherBuffer, ivBase64) {
-  const iv = new Uint8Array(base64ToArrayBuffer(ivBase64));
-  const plainBuffer = await window.crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    cipherBuffer
+// AES-GCM DECRYPT
+export async function decryptArrayBufferWithAesGcm(aesKey, cipherUint8, ivB64) {
+  // FIX IV PADDING
+  while (ivB64.length % 4 !== 0) ivB64 += "=";
+
+  const iv = new Uint8Array(base64ToArrayBuffer(ivB64));
+
+  const plain = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    aesKey,
+    cipherUint8
   );
-  return plainBuffer; // ArrayBuffer
+
+  return plain;
 }
 
-export { arrayBufferToBase64, base64ToArrayBuffer };
-
-// ---- ECDH helpers ----
+// ECDH key management
 export async function generateECDHKeyPair() {
-  const kp = await window.crypto.subtle.generateKey(
-    { name: 'ECDH', namedCurve: 'P-256' },
+  const kp = await crypto.subtle.generateKey(
+    { name: "ECDH", namedCurve: "P-256" },
     true,
-    ['deriveKey', 'deriveBits']
+    ["deriveKey"]
   );
-  const rawPub = await window.crypto.subtle.exportKey('raw', kp.publicKey); // ArrayBuffer
-  const pubBase64 = arrayBufferToBase64(rawPub);
-  const privJwk = await window.crypto.subtle.exportKey('jwk', kp.privateKey);
-  // return both the exported private JWK and the in-memory private CryptoKey
-  return { publicKey: pubBase64, privateJwk: privJwk, privateKey: kp.privateKey };
+
+  const rawPub = await crypto.subtle.exportKey("raw", kp.publicKey);
+
+  return {
+    publicKey: arrayBufferToBase64(rawPub),
+    privateJwk: await crypto.subtle.exportKey("jwk", kp.privateKey),
+  };
 }
 
-export async function importECDHPublicKey(pubBase64) {
-  const ab = base64ToArrayBuffer(pubBase64);
-  return await window.crypto.subtle.importKey(
-    'raw',
-    ab,
-    { name: 'ECDH', namedCurve: 'P-256' },
+async function importECDHPublicKey(pubB64) {
+  return crypto.subtle.importKey(
+    "raw",
+    base64ToArrayBuffer(pubB64),
+    { name: "ECDH", namedCurve: "P-256" },
     true,
     []
   );
 }
 
-export async function importECDHPrivateKeyFromJwk(jwk) {
-  return await window.crypto.subtle.importKey(
-    'jwk',
+async function importECDHPrivateKey(jwk) {
+  return crypto.subtle.importKey(
+    "jwk",
     jwk,
-    { name: 'ECDH', namedCurve: 'P-256' },
+    { name: "ECDH", namedCurve: "P-256" },
     true,
-    ['deriveKey', 'deriveBits']
+    ["deriveKey"]
   );
 }
 
-export async function deriveSharedAesKeyFromECDH(privateJwkOrKey, otherPublicBase64) {
-  let privateKey;
-  if (privateJwkOrKey && privateJwkOrKey.kty) {
-    privateKey = await importECDHPrivateKeyFromJwk(privateJwkOrKey);
-  } else if (privateJwkOrKey && privateJwkOrKey.type === 'private') {
-    privateKey = privateJwkOrKey; // assume CryptoKey
-  } else {
-    throw new Error('Invalid private key provided');
-  }
+// ECDH ENCRYPT
+export async function encryptWithRecipientPublicKey(recipientPubB64, plainArrayBuffer) {
+  // Generate ephemeral keypair
+  const ephKey = await crypto.subtle.generateKey(
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveKey"]
+  );
 
-  const publicKey = await importECDHPublicKey(otherPublicBase64);
+  const ephPubRaw = await crypto.subtle.exportKey("raw", ephKey.publicKey);
+  const ephPubB64 = arrayBufferToBase64(ephPubRaw);
 
-  // Derive AES-GCM 256-bit key directly
-  const derivedKey = await window.crypto.subtle.deriveKey(
-    { name: 'ECDH', public: publicKey },
+  // Import recipient public key
+  const recipientPub = await importECDHPublicKey(recipientPubB64);
+
+  // Derive AES key
+  const aesKey = await crypto.subtle.deriveKey(
+    { name: "ECDH", public: recipientPub },
+    ephKey.privateKey,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt"]
+  );
+
+  // Encrypt file
+  const { cipher, iv } = await encryptArrayBufferWithAesGcm(aesKey, plainArrayBuffer);
+
+  return { cipher, iv, ephemeralPublicKey: ephPubB64 };
+}
+
+
+// ECDH DECRYPT
+export async function decryptWithPrivateJwkAndEphemeral(privJwk, ephPubB64, cipherBuf, ivB64) {
+  const privateKey = await importECDHPrivateKey(privJwk);
+
+  const ephPub = await importECDHPublicKey(ephPubB64);
+
+  const aesKey = await crypto.subtle.deriveKey(
+    { name: "ECDH", public: ephPub },
     privateKey,
-    { name: 'AES-GCM', length: 256 },
+    { name: "AES-GCM", length: 256 },
     false,
-    ['encrypt', 'decrypt']
+    ["decrypt"]
   );
 
-  return derivedKey;
-}
+  // FIX: Always convert to Uint8Array
+  const cipherUint8 =
+    cipherBuf instanceof Uint8Array ? cipherBuf : new Uint8Array(cipherBuf);
 
-// Convenience wrapper: encrypt plaintext ArrayBuffer for a recipient's ECDH public key.
-// Returns { cipher: Uint8Array, iv: string (base64), ephemeralPublicKey: string }
-export async function encryptWithRecipientPublicKey(recipientPublicBase64, plainArrayBuffer) {
-  // generate ephemeral keypair
-  const kp = await window.crypto.subtle.generateKey(
-    { name: 'ECDH', namedCurve: 'P-256' },
-    true,
-    ['deriveKey', 'deriveBits']
-  );
-
-  const rawPub = await window.crypto.subtle.exportKey('raw', kp.publicKey);
-  const ephemeralPubBase64 = arrayBufferToBase64(rawPub);
-
-  // import recipient public and derive shared AES key
-  const recipientPub = await importECDHPublicKey(recipientPublicBase64);
-  const derivedKey = await window.crypto.subtle.deriveKey(
-    { name: 'ECDH', public: recipientPub },
-    kp.privateKey,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
-  );
-
-  const { cipher, iv } = await encryptArrayBufferWithAesGcm(derivedKey, plainArrayBuffer);
-  return { cipher, iv, ephemeralPublicKey: ephemeralPubBase64 };
-}
-
-// Convenience wrapper: decrypt cipher (ArrayBuffer or Uint8Array) using recipient's private JWK and sender's ephemeral public key (base64).
-// Returns decrypted ArrayBuffer.
-export async function decryptWithPrivateJwkAndEphemeral(privateJwk, ephemeralPublicBase64, cipherBuffer, ivBase64) {
-  const aesKey = await deriveSharedAesKeyFromECDH(privateJwk, ephemeralPublicBase64);
-  // cipherBuffer may be Uint8Array or ArrayBuffer
-  const buf = cipherBuffer instanceof Uint8Array ? cipherBuffer.buffer : cipherBuffer;
-  const plain = await decryptArrayBufferWithAesGcm(aesKey, buf, ivBase64);
-  return plain;
+  return await decryptArrayBufferWithAesGcm(aesKey, cipherUint8, ivB64);
 }
