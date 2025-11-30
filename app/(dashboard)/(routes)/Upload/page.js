@@ -3,20 +3,9 @@ import React, { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { storage, db, auth } from "../../../firebase/config";
 import { onAuthStateChanged } from "firebase/auth";
-import {
-  ref as storageRef,
-  uploadBytesResumable,
-  getDownloadURL,
-} from "firebase/storage";
+import { ref as storageRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { encryptWithRecipientPublicKey } from "../../../_utils/cryptoClient";
-import {
-  collection,
-  addDoc,
-  serverTimestamp,
-  query,
-  where,
-  getDocs,
-} from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, query, where, getDocs } from "firebase/firestore";
 
 export default function UploadPage() {
   const router = useRouter();
@@ -28,86 +17,68 @@ export default function UploadPage() {
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef();
 
-  // Redirect unauthenticated users
+  // Protect route
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
-      if (!u) {
-        router.replace("/signin");
-      }
+      if (!u) router.replace("/signin");
     });
     return () => unsub();
   }, []);
 
-  const handleFileSelect = (selectedFile) => {
-    setFile(selectedFile);
-  };
+  const handleFileSelect = (file) => setFile(file);
 
+  // 🔒 Upload & Encrypt
   const handleUpload = async () => {
-    if (!file) return alert("Please select a file first!");
-    if (!recipient) return alert("Enter a recipient email!");
+    if (!file) return alert("Select a file");
+    if (!recipient) return alert("Enter recipient email");
 
-    const cleanedRecipient = recipient.trim().toLowerCase();
-    console.log("🔍 Recipient typed:", cleanedRecipient);
+    setProgress(0);
+    setUrl("");
 
     try {
-      // Fetch recipient's public key
-      const q = query(
-        collection(db, "users"),
-        where("email", "==", cleanedRecipient)
-      );
+      const email = recipient.trim().toLowerCase();
 
+      // Fetch recipient public key
+      const q = query(collection(db, "users"), where("email", "==", email));
       const snap = await getDocs(q);
 
-      console.log("📌 Query empty?", snap.empty);
       if (snap.empty) {
-        alert("Cannot encrypt. Recipient not found or has no public key.");
+        alert("Recipient not registered");
         return;
       }
 
-      const recipientDoc = snap.docs[0].data();
-      console.log("📌 Recipient doc:", recipientDoc);
-
-      const recipientPub = recipientDoc.publicKey;
+      const recipientPub = snap.docs[0].data().publicKey;
       if (!recipientPub) {
-        alert("Cannot encrypt. Recipient has no public key.");
+        alert("Recipient has no encryption key");
         return;
       }
 
-      // Convert file → ArrayBuffer
+      // Encrypt file
       const fileBuffer = await file.arrayBuffer();
-
-      console.log("🔐 Encrypting with recipient public key…");
       const { cipher, iv, ephemeralPublicKey } =
         await encryptWithRecipientPublicKey(recipientPub, fileBuffer);
 
-      console.log("🔐 Encryption success. Uploading encrypted file…");
+      const encryptedBlob = new Blob([cipher], { type: "application/octet-stream" });
 
-      // Create encrypted blob
-      const encryptedBlob = new Blob([cipher], {
-        type: "application/octet-stream",
-      });
-
-      // Upload .enc file to Firebase Storage
       const fileRef = storageRef(storage, `uploads/${file.name}.enc`);
+
       const uploadTask = uploadBytesResumable(fileRef, encryptedBlob);
 
       uploadTask.on(
         "state_changed",
         (snapshot) => {
-          setProgress(
-            Math.round(
-              (snapshot.bytesTransferred / snapshot.totalBytes) * 100
-            )
-          );
+          setProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100));
         },
-        (error) => console.error("Upload Error:", error),
+        (error) => {
+          console.error("Upload failed:", error);
+          alert("Upload error: " + error.message);
+        },
         async () => {
           const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
           setUrl(downloadURL);
 
-          // Save metadata in Firestore
           await addDoc(collection(db, "sharedFiles"), {
-            recipientEmail: cleanedRecipient,
+            recipientEmail: email,
             fileUrl: downloadURL,
             fileName: file.name,
             encrypted: true,
@@ -116,20 +87,23 @@ export default function UploadPage() {
             createdAt: serverTimestamp(),
           });
 
-          console.log("✅ Encrypted file uploaded:", downloadURL);
-          alert("File uploaded securely with encryption!");
+          alert("✅ File encrypted and uploaded!");
         }
       );
+
     } catch (err) {
-      console.error("❌ Upload/encrypt error:", err);
+      console.error("Encryption/Upload Failure:", err);
+      alert("Error: " + err.message);
     }
   };
 
+  // 📧 Send Email (Fixed)
   const handleSend = async () => {
-    if (!url) return alert("Upload first!");
-    if (!recipient) return alert("Enter recipient email!");
+    if (!url) return alert("Upload file first");
+    if (!recipient) return alert("Recipient email missing");
 
     setSendStatus("sending");
+
     try {
       const res = await fetch("/api/send", {
         method: "POST",
@@ -141,107 +115,86 @@ export default function UploadPage() {
         }),
       });
 
-      const data = await res.json();
-      setSendStatus(data.success ? "sent" : "error");
+      const raw = await res.text();
+      console.log("Email API Response:", raw);
+
+      const data = JSON.parse(raw);
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Email failed");
+      }
+
+      setSendStatus("sent");
+      alert("✅ Email successfully sent!");
+
     } catch (err) {
-      console.error(err);
+      console.error("Email Error:", err);
+      alert(err.message);
       setSendStatus("error");
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100 py-12">
-      <div className="w-full max-w-4xl px-4">
-        <div className="flex flex-col md:flex-row md:space-x-6 space-y-6 md:space-y-0">
-          {/* Upload box */}
-          <div className="md:w-1/2 bg-white p-6 rounded-xl shadow-md">
-            <h2 className="text-2xl font-bold mb-4 text-blue-600">Upload File</h2>
+    <div suppressHydrationWarning className="min-h-screen flex justify-center bg-gray-100 py-10">
+      <div className="max-w-4xl w-full grid grid-cols-1 md:grid-cols-2 gap-6">
 
-            <input
-              type="file"
-              ref={inputRef}
-              onChange={(e) => handleFileSelect(e.target.files[0])}
-              className="hidden"
-            />
+        {/* Upload */}
+        <div className="bg-white p-6 rounded-xl shadow">
+          <h2 className="text-xl font-bold mb-4 text-blue-600">Upload & Encrypt</h2>
 
-            <div
-              onClick={() => inputRef.current && inputRef.current.click()}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setIsDragging(true);
-              }}
-              onDragLeave={(e) => {
-                e.preventDefault();
-                setIsDragging(false);
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                setIsDragging(false);
-                const dropped = e.dataTransfer.files?.[0];
-                if (dropped) handleFileSelect(dropped);
-              }}
-              className={`mb-4 p-6 border-2 rounded-md cursor-pointer ${
-                isDragging
-                  ? "border-blue-600 bg-blue-50"
-                  : "border-dashed border-gray-300"
-              }`}
-            >
-              <p className="text-sm text-gray-700">
-                {file ? file.name : "Drag & drop or click to select a file"}
-              </p>
-            </div>
+          <input
+            hidden
+            type="file"
+            ref={inputRef}
+            onChange={(e) => handleFileSelect(e.target.files[0])}
+          />
 
-            <button
-              onClick={handleUpload}
-              className="bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700"
-            >
-              Upload (Encrypted)
-            </button>
-
-            {progress > 0 && (
-              <p className="mt-3 text-gray-700 text-sm">Progress: {progress}%</p>
-            )}
-
-            {url && (
-              <p className="mt-3 text-green-600 text-sm break-all">
-                File uploaded successfully!
-              </p>
-            )}
+          <div
+            onClick={() => inputRef.current.click()}
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragging(false);
+              handleFileSelect(e.dataTransfer.files[0]);
+            }}
+            className={`border p-5 rounded cursor-pointer mb-4 ${isDragging ? "border-blue-600 bg-blue-50" : "border-dashed"}`}
+          >
+            {file ? file.name : "Click or drag file"}
           </div>
 
-          {/* Email sending box */}
-          <div className="md:w-1/2 bg-white p-6 rounded-xl shadow-md">
-            <h3 className="text-lg font-semibold mb-2 text-blue-600">
-              Send to recipient
-            </h3>
+          <button onClick={handleUpload} className="bg-blue-600 text-white p-2 rounded w-full">
+            Upload Encrypted
+          </button>
 
-            <input
-              type="email"
-              placeholder="Recipient email"
-              value={recipient}
-              onChange={(e) => setRecipient(e.target.value)}
-              className="w-full border p-2 rounded mb-3 text-gray-800"
-            />
-
-            <button
-              onClick={handleSend}
-              className="w-full bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700"
-            >
-              {sendStatus === "sending" ? "Sending..." : "Send Email"}
-            </button>
-
-            {sendStatus === "sent" && (
-              <p className="mt-3 text-green-600 text-sm">
-                Email sent successfully!
-              </p>
-            )}
-            {sendStatus === "error" && (
-              <p className="mt-3 text-red-600 text-sm">
-                Failed to send email.
-              </p>
-            )}
-          </div>
+          {progress > 0 && <p className="mt-2">Progress: {progress}%</p>}
+          {url && <p className="mt-2 text-green-600">✅ Upload complete!</p>}
         </div>
+
+        {/* Email */}
+        <div className="bg-white p-6 rounded-xl shadow">
+          <h2 className="text-xl font-bold mb-4 text-blue-600">Send Email</h2>
+
+          <input
+            type="email"
+            placeholder="Recipient email"
+            value={recipient}
+            onChange={(e) => setRecipient(e.target.value)}
+            className="border p-2 w-full rounded mb-3"
+          />
+
+          <button
+            onClick={handleSend}
+            disabled={!url}
+            className="bg-blue-600 disabled:bg-gray-400 text-white p-2 w-full rounded"
+          >
+            {sendStatus === "sending" ? "Sending..." : "Send Email"}
+          </button>
+
+          {sendStatus === "sent" && <p className="text-green-600 mt-2">Email sent!</p>}
+          {sendStatus === "error" && <p className="text-red-600 mt-2">Failed.</p>}
+        </div>
+
       </div>
     </div>
   );

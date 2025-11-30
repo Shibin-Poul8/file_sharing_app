@@ -147,7 +147,7 @@ export default function ReceiverPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto py-10 px-4">
+<div suppressHydrationWarning className="max-w-3xl mx-auto py-10 px-4">
       <h2 className="text-3xl font-bold text-blue-600 mb-4">📁 Files Shared With You</h2>
 
       {statusMessage && (
